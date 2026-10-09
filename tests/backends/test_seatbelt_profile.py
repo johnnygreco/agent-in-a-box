@@ -1,9 +1,9 @@
-"""The SBPL renderer, tested as text. Untested natively until Milestone 1.
+"""The SBPL renderer, tested as text. The native suite runs what it renders.
 
 Expectations follow PLAN.md (Filesystem grant extraction, Network mediation)
 and the renderer's documented shape: separate read and write rules, canonical
-literal paths, exec as process-exec plus metadata, only the proxy port for
-network, protected paths denied last.
+literal paths, exec as process-exec plus metadata, only TCP to the proxy port
+for network, the run's marker, protected paths denied last.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def test_profile_shape():
     assert '(allow file-write* (subpath "/r/ws/results"))' in lines
     assert '(allow process-exec (literal "/usr/bin/python3"))' in lines
     assert '(allow file-read-metadata (literal "/usr/bin/python3"))' in lines
-    assert '(allow network-outbound (remote ip "localhost:4123"))' in lines
+    assert '(allow network-outbound (remote tcp "localhost:4123"))' in lines
 
 
 def test_write_grant_does_not_grant_read():
@@ -52,9 +52,27 @@ def test_write_root_identity_is_pinned():
     assert '(deny file-write-create (literal "/r/ws/results"))' in text
 
 
-def test_only_one_network_rule():
+def test_only_one_network_rule_and_it_is_tcp():
+    """`remote ip` would also allow UDP to the proxy's port (seen on macOS 15, decisions/0014)."""
     network = [line for line in render(PLAN).splitlines() if "network" in line and "(" in line]
-    assert network == ['(allow network-outbound (remote ip "localhost:4123"))']
+    assert network == ['(allow network-outbound (remote tcp "localhost:4123"))']
+
+
+def test_marker_is_one_mach_lookup_and_only_when_given():
+    assert "mach-lookup (global-name \"org.agent-in-a-box.run.r1.ab\")" not in render(PLAN)
+    lines = render(PLAN, "org.agent-in-a-box.run.r1.ab").splitlines()
+    assert '(allow mach-lookup (global-name "org.agent-in-a-box.run.r1.ab"))' in lines
+
+
+@pytest.mark.parametrize("marker", ['x") (allow default', "a b", "a\nb"])
+def test_marker_cannot_inject_rules(marker):
+    with pytest.raises(ValueError):
+        render(PLAN, marker)
+
+
+def test_protected_paths_stay_last_with_a_marker():
+    lines = [line for line in render(PLAN, "m.x").splitlines() if line.startswith("(")]
+    assert lines[-1] == '(deny file-read* file-write* (subpath "/r/private"))'
 
 
 def test_protected_paths_are_denied_last():
@@ -110,10 +128,35 @@ def test_baseline_grants_no_user_data_and_writes_only_the_null_device():
 
     for entry in BASELINE:
         assert entry.why
-        assert not entry.value.startswith(("/Users", "/Volumes", "/private/var/folders"))
+        for value in entry.values:
+            assert not value.startswith(("/Users", "/Volumes", "/private/var/folders"))
         if entry.operation.startswith("file-write"):
-            assert entry.value == "/dev/null"
+            assert entry.values == ("/dev/null",)
         assert not entry.operation.startswith("network")
+
+
+def test_baseline_reads_no_process_listing_or_other_processes_arguments():
+    """sysctl-read is narrowed to named parameters (decisions/0014)."""
+    from agent_in_a_box.supervisor.backends.seatbelt.os_baseline import BASELINE
+
+    sysctl = [entry for entry in BASELINE if entry.operation == "sysctl-read"]
+    assert sysctl and all(entry.filter in ("sysctl-name", "sysctl-name-prefix")
+                          for entry in sysctl)
+    names = [value for entry in sysctl for value in entry.values]
+    assert not any(name.startswith("kern.proc") for name in names)
+    assert "kern." not in names
+
+
+def test_self_probes_expect_refusal_and_cover_each_protected_path():
+    from agent_in_a_box.supervisor.backends.seatbelt.profile import self_probes
+
+    probes = self_probes(PLAN, "n1", exists=lambda path: True)
+    assert {probe["expect"] for probe in probes} == {"denied"}
+    assert {probe["op"] for probe in probes} >= {"listdir", "create", "tcp", "udp", "unix"}
+    assert [p["target"] for p in probes if p["op"] == "stat"] == ["/r/private"]
+    missing = self_probes(PLAN, "n1", exists=lambda path: False)
+    assert [p["expect"] for p in missing if p["op"] == "stat"] == ["absent"]
+    assert all(str(PLAN.proxy_port) not in p["target"] for p in probes if p["op"] == "tcp")
 
 
 def test_ancestors():

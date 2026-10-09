@@ -56,6 +56,42 @@ jobs:
       - run: uv run agent-in-a-box doctor
       - run: uv run pytest -ra tests/backends tests/native/linux
 
+  # The macOS backend's native suite (decisions/0014, 0015). Seatbelt is the primary
+  # backend and this job is its native validation: the runner image, macOS build, and
+  # run URL recorded in STATUS.md come from here. AGENT_IN_A_BOX_REQUIRE_NATIVE turns a
+  # doctor refusal into a failure, not a skip. On failure, the kernel's own denial
+  # messages for the whole job are printed last.
+  macos-native:
+    runs-on: macos-15
+    env:
+      AGENT_IN_A_BOX_REQUIRE_NATIVE: seatbelt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.24"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Cache the Cedar bridge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            native/cedar-bridge/target
+          key: bridge-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/cedar-bridge/Cargo.lock', 'native/cedar-bridge/src/**', 'tooling/toolchain.lock.json') }}
+      - run: uv sync --locked
+      - run: python3 tooling/bootstrap.py
+      - name: Record the host
+        run: |
+          sw_vers
+          uname -a
+          sysctl -n machdep.cpu.brand_string hw.model
+          echo "runner image: $ImageOS $ImageVersion"
+      - run: uv run agent-in-a-box doctor
+      - run: uv run pytest -ra tests/backends tests/native/macos
+      - name: Seatbelt denials logged during the job
+        if: failure()
+        run: log show --last 30m --style compact --predicate 'sender == "Sandbox"' | grep " deny" | tail -400
+
   # The course website, deployed to GitHub Pages from main after the tests pass on
   # both runners. It is built from publishable data only (decisions/0011): analysis
   # results produced here with the pinned toolchain, and native recordings from

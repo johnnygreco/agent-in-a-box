@@ -83,13 +83,20 @@ def test_rerunning_the_session_starts_nothing(trailer):
     assert result.returncode == 0 and sorted((state / "runs").iterdir()) == before
 
 
-def test_doctor_refuses_native_execution_when_a_prerequisite_is_missing(tmp_path):
-    """With bubblewrap off the PATH (Linux) or on macOS before Milestone 1, the doctor refuses."""
-    environment = {"PATH": str(Path(sys.executable).parent), "HOME": str(tmp_path)}
-    result = subprocess.run([*CLI, "--state-dir", str(tmp_path), "doctor"], capture_output=True,
-                            text=True, timeout=60, env=environment)
-    assert result.returncode == 1
-    assert "native execution: disabled" in result.stdout or "no fallback" in result.stdout
+def test_cli_doctor_reports_a_refusal_and_disables_native_execution(tmp_path, monkeypatch,
+                                                                    capsys):
+    """Whichever native backend this host has, a failing check disables native execution."""
+    from agent_in_a_box.contracts import DoctorCheck, DoctorReport
+    from agent_in_a_box.experiments import cli
+    from agent_in_a_box.supervisor.backends.landlock import LandlockBackend
+    from agent_in_a_box.supervisor.backends.seatbelt import SeatbeltBackend
+
+    for backend in (LandlockBackend, SeatbeltBackend):
+        report = DoctorReport(backend.name, (DoctorCheck("forced", False, "missing"),), False)
+        monkeypatch.setattr(backend, "doctor", lambda self, report=report: report)
+    assert cli.main(["--state-dir", str(tmp_path), "doctor"]) == 1
+    output = capsys.readouterr().out
+    assert "native execution: disabled" in output or "no fallback" in output
 
 
 def test_bundle_cli_show_and_replay(trailer):

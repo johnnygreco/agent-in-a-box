@@ -44,6 +44,11 @@ def create_run(runs_dir: Path, run_id: str | None = None) -> RunSpec:
                    private=str(run_dir / "private"))
 
 
+def workload_path() -> str:
+    """The PATH the workload runs with. Tool grants are resolved on this same PATH."""
+    return os.pathsep.join([os.path.dirname(sys.executable), "/usr/bin", "/bin"])
+
+
 def workload(run: RunSpec, task: str, proxy_port: int, deadline_s: float = 60.0,
              probe: dict | None = None) -> WorkloadSpec:
     """The harness command and a sanitized environment: no inherited secrets.
@@ -52,7 +57,7 @@ def workload(run: RunSpec, task: str, proxy_port: int, deadline_s: float = 60.0,
     """
     proxy = f"http://127.0.0.1:{proxy_port}"
     env = {
-        "PATH": os.pathsep.join([os.path.dirname(sys.executable), "/usr/bin", "/bin"]),
+        "PATH": workload_path(),
         "HOME": run.home,
         "TMPDIR": run.tmp,
         "LANG": "C.UTF-8",

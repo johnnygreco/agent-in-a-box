@@ -11,7 +11,6 @@ and ADR 0010, not from observed output.
 
 from __future__ import annotations
 
-import json
 import os
 import socket
 import sys
@@ -19,10 +18,10 @@ import uuid
 
 import pytest
 
-from agent_in_a_box.contracts import plain
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.policy import schema
 from tests.native.required import native_runtime_or_skip
+from tests.native.workload import events, run_bash, run_python
 
 pytestmark = [pytest.mark.native,
               pytest.mark.skipif(sys.platform != "linux", reason="Linux-only checks")]
@@ -31,33 +30,6 @@ pytestmark = [pytest.mark.native,
 @pytest.fixture
 def runtime(tmp_path):
     return native_runtime_or_skip("landlock", tmp_path / "runs")
-
-
-def events(record, kind):
-    return [plain(event.payload) for event in record.events if event.kind == kind]
-
-
-def run_bash(runtime, command, **tokens):
-    """Run one bash command as the workload; return (record, observation).
-
-    @DIRECT_PORT@ becomes the fixture's own port, and @NAME@ the value of `name=`.
-    """
-    def build(route):
-        text = command.replace("@DIRECT_PORT@", str(route.port))
-        for key, value in tokens.items():
-            text = text.replace(f"@{key.upper()}@", str(value))
-        return {"name": "bash", "arguments": {"command": text}}
-
-    record = scenario.run(runtime, schema.load_variant("P0"), probe=build, deadline_s=30)
-    assert record.status == "completed" and record.enforcement == "landlock"
-    return record, events(record, "agent.observation")[0]["data"]["observation"]
-
-
-def run_python(runtime, code, **tokens):
-    """Run a child Python program; it prints one JSON object of results."""
-    command = "python3 -c " + "'" + code.replace("'", "'\"'\"'") + "'"
-    record, observation = run_bash(runtime, command, **tokens)
-    return record, json.loads(observation["output"].strip().splitlines()[-1])
 
 
 def test_mounted_but_ungranted_files_are_denied_by_landlock(runtime):

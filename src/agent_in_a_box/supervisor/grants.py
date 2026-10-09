@@ -17,6 +17,7 @@ from agent_in_a_box.contracts import Access, Extent, GrantPlan, PathGrant, RunSp
 from agent_in_a_box.policy import schema
 from agent_in_a_box.policy.compiler import CompiledPolicy, PolicyRejected
 from agent_in_a_box.policy.toolchain import toolchain_dir
+from agent_in_a_box.supervisor.runs import workload_path
 
 # Programs the harness tools and the lessons' probes run.
 RUNTIME_PROGRAMS = ("bash", "sh", "env", "cat", "ls", "echo", "head", "grep", "curl", "sleep",
@@ -54,7 +55,9 @@ def _grant(path: str, access: Access, extent: Extent, why: str) -> PathGrant:
 def runtime_grants(run: RunSpec) -> tuple[PathGrant, ...]:
     grants = [_grant(sys.executable, Access.EXECUTE, Extent.FILE, "Python interpreter")]
     for program in RUNTIME_PROGRAMS:
-        if found := shutil.which(program):
+        # Resolve on the workload's PATH, not the supervisor's: the grant must name
+        # the program the workload will actually run.
+        if found := shutil.which(program, path=workload_path()):
             grants.append(_grant(found, Access.EXECUTE, Extent.FILE, f"tool program {program}"))
     grants += [
         _grant(sys.base_prefix, Access.READ, Extent.SUBTREE, "Python standard library"),

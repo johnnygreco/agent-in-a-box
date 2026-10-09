@@ -18,6 +18,7 @@ from agent_in_a_box.contracts import RunRecord, plain
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.policy import schema
+from tests.native.diagnostics import denials_on_failure, explain
 from tests.native.required import native_runtime_or_skip
 
 NATIVE_BACKENDS = ("seatbelt", "landlock")
@@ -126,7 +127,8 @@ def test_probe(native_runtime, probe, tmp_path):
     reason = EXPECTED_FAIL.get((native_runtime.backend.name, probe.name))
     if reason:
         pytest.xfail(reason)
-    record = run_probe(native_runtime, probe, tmp_path)
-    assert record.status == "completed"
-    assert record.enforcement == native_runtime.backend.name
-    check_expected(record, probe)
+    with denials_on_failure(native_runtime.backend.name):
+        record = run_probe(native_runtime, probe, tmp_path)
+        assert record.status == "completed", explain(record)
+        assert record.enforcement == native_runtime.backend.name
+        check_expected(record, probe)

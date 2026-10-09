@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from agent_in_a_box import composition
-from agent_in_a_box.contracts import plain
+from agent_in_a_box.contracts import DoctorCheck, DoctorReport, plain
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.policy import schema
 from agent_in_a_box.supervisor.evidence import agent_line
@@ -85,9 +85,12 @@ def test_rejected_policy_refuses_the_run_before_launch(runtime):
     assert not any(e.kind in ("launched", "admitted") for e in record.events)
 
 
-def test_native_backend_with_failing_doctor_refuses_and_launches_nothing(tmp_path):
+def test_native_backend_with_failing_doctor_refuses_and_launches_nothing(tmp_path, monkeypatch):
     runtime = composition.assemble(composition.RuntimeConfig(backend="seatbelt",
                                                              runs_dir=tmp_path / "runs"))
+    # Force the refusal, so the test means the same thing on a Mac whose doctor passes.
+    failing = DoctorReport("seatbelt", (DoctorCheck("forced", False, "test"),), False)
+    monkeypatch.setattr(runtime.backend, "doctor", lambda: failing)
     record = scenario.run(runtime, schema.load_variant("P0"))
     assert record.status == "refused" and "doctor" in record.refusal
     assert record.enforcement == "seatbelt"
