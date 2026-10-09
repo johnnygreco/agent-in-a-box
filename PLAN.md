@@ -39,7 +39,7 @@ Release 1 is complete when all of the following hold:
 
 - On a supported Mac, a developer with no model account runs the chapter 0 trailer live: a contained scripted agent reads the measurements fixture, fetches reference data through the proxy, writes a report; the policy is broadened; the unchanged examples pass; the solver returns a POST witness; replay shows old deny and new allow; the repair yields "no permission expansion in domain D" and "intended task preserved"; the run exports as a bundle.
 - The Linux backend passes the same conformance suite on a named kernel and distribution, or release 1 ships macOS-only with Linux labeled experimental. Linux never delays or alters the macOS release.
-- The hosted site serves chapters 0 through 9 and the capstone. Chapters marked hosted-interactive in CURRICULUM.md work with no native tools. Recorded content is labeled recorded.
+- The GitHub Pages site serves chapters 0 through 9 and the capstone. Chapters marked hosted-interactive in CURRICULUM.md work with no native tools. Recorded content is labeled recorded.
 - Notebooks 01 through 06 run in recorded mode in CI and in live mode on a supported Mac.
 - Website, CLI, and marimo produce compatible bundles for the same experiment.
 - The pilot gate has passed: two of three developers new to Cedar complete the five unaided explanations in CURRICULUM.md after chapters 0 and 5.
@@ -68,7 +68,7 @@ These hold at every commit. A change that weakens one is outside the implementin
 | Decide and proceed | Module layout within the given tree, naming, test organization, lint and formatter configuration, internal data structures, website component structure, copy edits that do not change a chapter contract, fixture content that preserves the contract. |
 | Decide and record an ADR in `decisions/` | Cedar, SymCC, and solver versions; proxy component; launcher approach; Python and Node versions; any deviation from a plan section; any change to `contracts.py` after M2; any change to a chapter contract; any dependency with native code; bundle schema version changes; supported platform matrix. |
 | Decide and record an ADR that states macOS impact | Any change to a shared contract, the grant plan, the conformance suite, or the evidence schema that is motivated by the Linux backend. The ADR must state that the macOS backend's behavior, requirements, and defaults are unchanged. If they would change, stop and ask instead. |
-| Stop, write the question in STATUS.md, continue other work | Anything that would weaken an invariant; anything requiring paid accounts or real credentials; publishing the site; anything needing `sudo` beyond documented setup steps or touching system trust stores; dropping or merging a chapter; changing the platform decision; a suspected vulnerability in a reused component. |
+| Stop, write the question in STATUS.md, continue other work | Anything that would weaken an invariant; anything requiring paid accounts or real credentials; publishing anywhere other than the project's GitHub Pages site, which CI deploys from `main`; anything needing `sudo` beyond documented setup steps or touching system trust stores; dropping or merging a chapter; changing the platform decision; a suspected vulnerability in a reused component. |
 
 An ADR has: context, decision, alternatives rejected, consequences, and the PLAN.md or CURRICULUM.md section it affects. When a decision changes this plan, edit the plan in the same change and cite the ADR number.
 
@@ -169,9 +169,11 @@ The particle-in-a-box analogy supplies only the method: establish boundaries, ob
 
 | Experience | Available behavior |
 | --- | --- |
-| Hosted course | Read lessons, inspect code and diagrams, predict outcomes, evaluate hypothetical requests and the bounded matrix at the Cedar level, and replay bundled records. Recorded results are labeled recorded; no local execution is implied. |
+| Hosted course (GitHub Pages) | Published at https://johnnygreco.github.io/agent-in-a-box/ by CI from `main`. Read lessons, inspect code and diagrams, predict outcomes, evaluate hypothetical requests and the bounded matrix at the Cedar level, and replay bundled records. Recorded results are labeled recorded; no local execution is implied. |
 | Local lab on a supported native platform | The local gateway serves the built site and authenticated API from the same origin. Start real sandboxed runs, edit policy, invoke the solver, and inspect fresh evidence. |
 | Marimo developer lab | Open editable Python notebooks to construct requests, compare policies, inspect traces, and control the same native runtime through its gateway. Recorded-data exploration is available without native execution. |
+
+**Publishing rules.** CI builds the site and deploys it to GitHub Pages on every push to `main` after the test job passes. The build reads only publishable data: platform-independent analysis results generated in CI with the pinned toolchain (solver outcomes, witnesses, replays, the bounded matrix), and native-recorded bundles from `bundles/`. The publishing step refuses any bundle with `enforcement: none`. A lesson whose native recording does not exist yet says so in place of the run; it never substitutes a test-backend run. Every published result carries its evidence label and tool manifest.
 
 The public site links to local setup. It does not silently connect to localhost or gain permission to run code on a visitor's machine. Initial local use opens the gateway-served site; remote-site pairing is deferred. The published course remains useful on other platforms, but native execution is unavailable there rather than falling back to an uncontained process.
 
@@ -183,6 +185,7 @@ Use **Astro with MDX and small TypeScript interactive components**. Keep backend
 - **One live boundary diagram** on every experiment page: the agent plus four layers (kernel profile, proxy and bridge, Cedar, solver). Streaming events light up the layer that produced them and are positioned by provenance. The event list and the diagram render the same records.
 - **Controlled probes** are a named teaching device (chapter 4). Each ships with an authored expectation, the rule it hits, what the proxy and Cedar saw, and a "how we know" checklist. One author-recorded bundle of the same probes run under `NoEnforcementBackend` on the native platform provides contrast. It is recorded only and never a runnable mode.
 - **Glossary terms verbatim** on every result label; selecting a label opens the glossary entry.
+- **Deployment.** The Astro build uses the project base path (`/agent-in-a-box/`), every internal link and asset path respects it, and the README banner is reused on the index page.
 - **Hosted interactivity at the Cedar level**: hypothetical-request evaluation and the bounded matrix run in the browser or against precomputed decision tables. Lesson solver results and witnesses are precomputed and labeled recorded. CURRICULUM.md marks each chapter hosted-interactive or recorded.
 - Reveal raw requests, profile text, solver input, and domain inventories on request. Text equivalents, keyboard controls, and outcomes that do not rely on color.
 - One canonical task throughout. Teach through interventions on the policy, the data, and the agent, not by operating a miniature cloud platform.
@@ -658,7 +661,7 @@ Platform: Linux. Scheduled on 2026-10-09 by the owner ([ADR 0001](decisions/0001
 
 Platform: native for live runs; Linux for the rest. Goal: the trailer live, the shipped bundles, chapters 0, 1, 3 (minimal), 5, notebooks 01, 02 (minimal), 04, and the pilot gate.
 
-Deliverables: `SeatbeltBackend` wired through the supervisor, and `LandlockBackend` if M1-L has passed; the trailer live on each passed backend; recorded bundles produced natively with full provenance and shipped in `bundles/`, from macOS whenever a macOS run exists and otherwise from Linux, labeled, until macOS bundles replace them (primacy rule 4); hosted interactivity (WebAssembly or precomputed tables) for the evaluator and matrix; chapters 0, 1, 3 minimal, 5 complete per their contracts; notebooks 01, 02 minimal, 04 shipped with recorded-mode CI; CLI, website, and marimo bundle parity for the trailer; pilot run per CURRICULUM.md.
+Deliverables: the GitHub Pages deployment pipeline with the publishing rules above (requested by the owner on 2026-10-09; it lands as soon as it is ready, independent of the native milestones); `SeatbeltBackend` wired through the supervisor, and `LandlockBackend` if M1-L has passed; the trailer live on each passed backend; recorded bundles produced natively with full provenance and shipped in `bundles/`, from macOS whenever a macOS run exists and otherwise from Linux, labeled, until macOS bundles replace them (primacy rule 4); hosted interactivity (WebAssembly or precomputed tables) for the evaluator and matrix; chapters 0, 1, 3 minimal, 5 complete per their contracts; notebooks 01, 02 minimal, 04 shipped with recorded-mode CI; CLI, website, and marimo bundle parity for the trailer; pilot run per CURRICULUM.md.
 
 Exit: all of the above; two of three pilot developers complete the five explanations; durable contracts frozen and recorded.
 
