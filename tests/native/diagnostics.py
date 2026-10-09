@@ -17,10 +17,10 @@ import time
 LIMIT = 80
 
 
-def seatbelt_denials(since: float, pid: int | None = None) -> list[str]:
+def seatbelt_denials(since: float, pid: int | None = None, limit: int | None = LIMIT) -> list[str]:
     """Sandbox denials logged since `since` (a time.time() value), most recent last.
 
-    With `pid`, only that process's denials, and all of them.
+    With `pid`, only that process's denials. At most `limit` lines, the newest.
     """
     if shutil.which("log") is None:
         return ["(the log command is not available)"]
@@ -32,7 +32,7 @@ def seatbelt_denials(since: float, pid: int | None = None) -> list[str]:
                             "--predicate", predicate],
                            capture_output=True, text=True, timeout=120)
     lines = [line for line in shown.stdout.splitlines() if " deny" in line]
-    return lines if pid is not None else lines[-LIMIT:]
+    return lines[-limit:] if limit else lines
 
 
 def kernel_denials(backend: str, since: float) -> str:

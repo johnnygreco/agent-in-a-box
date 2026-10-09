@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 import pytest
 
@@ -96,7 +97,7 @@ def setting(tmp_path_factory):
 
 
 def confined(plan, env, cwd, argv, without=None):
-    """Run `argv` under the profile, less one entry; return (result, pid)."""
+    """Run `argv` under the profile, less one entry."""
     kept = tuple(entry for entry in os_baseline.BASELINE if entry is not without)
     original = profile.BASELINE
     profile.BASELINE = kept
@@ -104,10 +105,8 @@ def confined(plan, env, cwd, argv, without=None):
         text = profile.render(plan, "org.agent-in-a-box.run.baseline-test", cwd)
     finally:
         profile.BASELINE = original
-    child = subprocess.Popen([PY, "-c", CONFINE, *argv], env={**env, "AIB_PROFILE": text},
-                             cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout, stderr = child.communicate(timeout=60)
-    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr), child.pid
+    return subprocess.run([PY, "-c", CONFINE, *argv], env={**env, "AIB_PROFILE": text}, cwd=cwd,
+                          capture_output=True, text=True, timeout=60)
 
 
 def shows(result, text):
@@ -116,17 +115,27 @@ def shows(result, text):
     return text in result.stdout + result.stderr
 
 
-def names(line, pid, path):
-    """Whether a denial line is for process `pid` and names `path` or a path below it."""
-    return f"({pid}) deny" in line and (line.rstrip().endswith(f" {path}") or f" {path}/" in line)
+def naming(path, since):
+    """(time, line) for each denial since `since` that names `path` or a path below it.
+
+    Not filtered by process: the denial may come from a child the program
+    forked, as Python's subprocess does before it runs a program.
+    """
+    found = []
+    for line in seatbelt_denials(since, limit=None):
+        if line.rstrip().endswith(f" {path}") or f" {path}/" in line:
+            stamp = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f").timestamp()
+            found.append((stamp, line))
+    return found
 
 
-def logged_denial(since, pid, path):
+def denied_after(path, since, after):
+    """Wait for the log to show a denial of `path` after time `after`."""
     deadline = time.monotonic() + 20  # the unified log can lag the kernel
     while True:
-        lines = seatbelt_denials(since, pid)
-        if any(names(line, pid, path) for line in lines) or time.monotonic() > deadline:
-            return any(names(line, pid, path) for line in lines), lines
+        found = naming(path, since)
+        if any(stamp >= after for stamp, _ in found) or time.monotonic() > deadline:
+            return found
         time.sleep(1)
 
 
@@ -139,8 +148,9 @@ def test_entry_is_needed(setting, entry):
     run, plan, env = setting
     evidence = EVIDENCE[key(entry)]
     since = time.time()
-    full, full_pid = confined(plan, env, run.workspace, evidence.argv)
-    without, without_pid = confined(plan, env, run.workspace, evidence.argv, without=entry)
+    full = confined(plan, env, run.workspace, evidence.argv)
+    between = time.time()
+    without = confined(plan, env, run.workspace, evidence.argv, without=entry)
     report = (f"full profile: exit {full.returncode}, {full.stdout[-300:]!r} {full.stderr[-300:]!r}"
               f"\nwithout the entry: exit {without.returncode}, {without.stdout[-300:]!r} "
               f"{without.stderr[-300:]!r}")
@@ -148,8 +158,9 @@ def test_entry_is_needed(setting, entry):
         assert not shows(full, evidence.shows), report
         assert shows(without, evidence.shows), report
     else:
-        found, lines = logged_denial(since, without_pid, evidence.path)
-        assert found, report + "\nSeatbelt denials:\n" + "\n".join(lines)
-        refused = [line for line in seatbelt_denials(since, full_pid)
-                   if names(line, full_pid, evidence.path)]
-        assert not refused, report + "\nthe full profile was refused it too:\n" + "\n".join(refused)
+        found = denied_after(evidence.path, since, between)
+        lines = "\n".join(line for _, line in found)
+        assert any(stamp >= between for stamp, _ in found), (
+            f"{report}\nno denial of {evidence.path} was logged without the entry")
+        assert not any(stamp < between for stamp, _ in found), (
+            f"{report}\nthe full profile was refused it too:\n{lines}")
