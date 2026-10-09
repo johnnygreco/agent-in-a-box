@@ -105,7 +105,7 @@ def start(request: RunRequest, backend: SupervisorBackend, evaluator: CedarEvalu
         report = backend.confirm(process)
         log.lifecycle("containment", **plain(report))
         if not report.admit:
-            backend.stop(process)
+            log.lifecycle("workload_stopped", **plain(backend.stop(process)))
             raise LaunchRefused("containment was not confirmed; workload not admitted")
         log.lifecycle("admitted", contained=report.contained)
     except Exception:

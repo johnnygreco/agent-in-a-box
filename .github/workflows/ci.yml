@@ -25,6 +25,37 @@ jobs:
       # Native conformance probes skip until a backend's doctor passes on the runner.
       - run: uv run pytest -ra
 
+  # The Linux backend's native suite (decisions/0010). The runner restricts unprivileged
+  # user namespaces through AppArmor; this job lifts that restriction for itself only.
+  # AGENT_IN_A_BOX_REQUIRE_NATIVE turns a doctor refusal into a failure, not a skip.
+  linux-native:
+    runs-on: ubuntu-24.04
+    env:
+      AGENT_IN_A_BOX_REQUIRE_NATIVE: landlock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.24"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Install bubblewrap and allow unprivileged user namespaces
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - run: uv sync --locked
+      - run: python3 tooling/bootstrap.py
+      - name: Record the host
+        run: |
+          uname -a
+          cat /etc/os-release
+          cat /sys/kernel/security/lsm; echo
+          bwrap --version
+      - run: uv run agent-in-a-box doctor
+      - run: uv run pytest -ra tests/backends tests/native/linux
+
   # The course website, deployed to GitHub Pages from main after the tests pass on
   # both runners. It is built from publishable data only (decisions/0011): analysis
   # results produced here with the pinned toolchain, and native recordings from

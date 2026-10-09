@@ -14,11 +14,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from agent_in_a_box import composition
 from agent_in_a_box.contracts import RunRecord, plain
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.policy import schema
+from tests.native.required import native_runtime_or_skip
 
 NATIVE_BACKENDS = ("seatbelt", "landlock")
 # Linux-only expected failures, each with its reason. None are known yet.
@@ -71,16 +71,7 @@ def tool_call(probe: Probe, route: Route, paths: dict[str, str]) -> dict:
 
 @pytest.fixture(params=NATIVE_BACKENDS)
 def native_runtime(request, tmp_path):
-    name = request.param
-    if name not in composition.BACKENDS:
-        pytest.skip(f"{name} backend is not implemented yet")
-    config = composition.RuntimeConfig(backend=name, runs_dir=tmp_path / "runs")
-    runtime = composition.assemble(config)
-    doctor = runtime.backend.doctor()
-    if not doctor.ok:
-        failed = [check.detail for check in doctor.checks if not check.ok]
-        pytest.skip(f"{name} doctor refuses on this host: " + "; ".join(failed))
-    return runtime
+    return native_runtime_or_skip(request.param, tmp_path / "runs")
 
 
 def events(record: RunRecord, kind: str) -> list[dict]:
