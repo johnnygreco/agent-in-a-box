@@ -29,7 +29,7 @@ None. No Seatbelt behavior has been exercised. No native-enforcement claim may b
 - [x] Website scaffold renders chapters 0 and 5 from test-backend bundles (development only; Astro, ADR 0006)
 - [x] Notebooks 01 and 04 drafted in recorded mode
 
-### M1 — Native boundary feasibility (Mac)
+### M1 — Native boundary feasibility (macOS; the GitHub `macos-15` runner counts)
 - [ ] Launcher approach chosen and recorded as an ADR
 - [ ] Profile applies; Bash and child Python inherit it
 - [ ] Declared grants work; canaries, protected state, and symlink/replacement cases are blocked
@@ -128,3 +128,4 @@ See `decisions/`.
 | 2026-10-09 | Owner naming decision applied: package `agent_in_a_box`, CLI `agent-in-a-box`, bridge binary `agent-in-a-box-cedar`, state directory `.agent-in-a-box/`. |
 | 2026-10-09 | Owner decisions: git initialized on `main`; public GitHub repo `johnnygreco/agent-in-a-box` created as `origin` (nothing pushed); license Apache-2.0; chapter 4 probe uses the `missing` fixture variant; all inspiration and reference material moved to git-ignored `inspiration/` and removed from public documents. Code-side scrub, oracle-case rework, and `os_baseline.py` rewrite handed to the implementer. |
 | 2026-10-09 | Review fixes: plain code on the teaching route (no tuple-assignment chains, closures over mutable locals, or lambdas in dicts); new concept files `network/protocol.py`, `policy/authored_ids.py`, `policy/domains.py`, `policy/policy_json.py`, `experiments/steps.py`, `models/report.py`; named trigger functions in the scripted model; explicit command dispatch; structured checks in the experiment scripts with step names defined once; agent events ordered by supervisor read time; evaluator names derived from the lock; backend `wait`/`stop` (ADR 0007). Owner items: public tree scrubbed of third-party names with a grep gate; macOS baseline rewritten (ADR 0008); public oracle cases from the official CLI (ADR 0009); Apache-2.0 in pyproject; `missing` fixture variant and its conformance probe; README banner. First local commit made; not pushed. |
+| 2026-10-09 | First push to `johnnygreco/agent-in-a-box`. CI: Linux job passed; macOS job failed on two process-group tests because macOS refuses `killpg(group, 0)` where Linux does not. Fixed by enumerating group members with `pgrep -g` and signalling per process when the group signal is refused; the teardown report now lists actual survivors. Recorded in PLAN.md that GitHub's Apple silicon macOS runner satisfies the native gates, so the work can be finished from this Linux machine. |
