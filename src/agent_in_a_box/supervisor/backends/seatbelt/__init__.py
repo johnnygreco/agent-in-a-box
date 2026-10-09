@@ -230,7 +230,7 @@ def reserve_ipv6_twin(port: int) -> socket.socket:
     Seatbelt's `localhost` means both 127.0.0.1 and ::1, and the proxy listens
     only on 127.0.0.1. Holding the IPv6 twin of its port means no other local
     service can be listening there for the workload to reach; a connection
-    to it is refused. If another process already holds it, the run is refused.
+    to it reaches nothing. If another process already holds it, the run is refused.
     """
     twin = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     try:

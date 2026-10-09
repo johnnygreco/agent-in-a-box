@@ -2,8 +2,8 @@
 
 One file per concept, read top to bottom in chapter 9. Concepts not yet
 implemented (model bridge: Milestone 3) are listed with no file and are added
-here when they land. The launcher slot holds the first launcher to exist, the
-Linux one; the macOS launcher joins it in Milestone 1.
+here when they land. The launcher slot holds both launchers: the macOS one,
+which chapter 9 reads (decisions/0014), and the Linux one (decisions/0010).
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ ROUTE = [
     ("determining-policy extraction", "policy/authored_ids.py", 100),
     ("evaluator adapter", "policy/evaluator.py", 100),
     ("policy subset compiler", "policy/compiler.py", 250),
-    ("launcher", "supervisor/backends/landlock/launcher.py", 150),
+    ("launcher", "supervisor/backends/seatbelt/launcher.py", 150),
+    ("launcher (Linux)", "supervisor/backends/landlock/launcher.py", 150),
     ("proxy decision path", "network/proxy.py", 150),
     ("analyzer adapter and witness replay", "policy/analyzer.py", 150),
     ("lifecycle", "supervisor/lifecycle.py", 150),

@@ -34,12 +34,17 @@ def run_bash(runtime, command, **tokens):
 
 
 def run_python(runtime, code, **tokens):
-    """Run a child Python program; it prints one JSON object of results."""
+    """Run a child Python program; it prints one JSON object of results.
+
+    The observation holds stdout then stderr, so the result is the last line
+    that is a JSON object, wherever the program's stderr ends.
+    """
     command = "python3 -c " + "'" + code.replace("'", "'\"'\"'") + "'"
     record, observation = run_bash(runtime, command, **tokens)
-    lines = observation["output"].strip().splitlines()
-    try:
-        return record, json.loads(lines[-1])
-    except (IndexError, ValueError):
-        output = observation["output"]
-        raise AssertionError(f"the child program printed no result:\n{output}") from None
+    for line in reversed(observation["output"].strip().splitlines()):
+        if line.startswith("{"):
+            try:
+                return record, json.loads(line)
+            except ValueError:
+                continue
+    raise AssertionError(f"the child program printed no result:\n{observation['output']}")

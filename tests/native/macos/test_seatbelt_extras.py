@@ -148,9 +148,10 @@ print(json.dumps(results))
     finally:
         host_listener.close()
         os.unlink(path)
-    # The IPv6 twin of the proxy's port is held, unbound to any listener, by the
-    # backend (decisions/0014), so it is refused by the network stack, not the profile.
-    assert results.pop("ipv6 twin of the proxy port") == "Connection refused"
+    # The profile allows the IPv6 twin of the proxy's port (Seatbelt's localhost is both
+    # 127.0.0.1 and ::1). The backend holds it bound and not listening (decisions/0014),
+    # so the connection reaches nothing: refused, or on the runner, unanswered.
+    assert results.pop("ipv6 twin of the proxy port") in ("Connection refused", "TimeoutError")
     assert results.pop("dns") == "failed"
     assert set(results.values()) == {REFUSED}, results
 

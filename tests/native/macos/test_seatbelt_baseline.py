@@ -73,8 +73,9 @@ EVIDENCE = {
     "file-read* /dev/null": Visible(["/bin/cat", "/dev/null"], "Operation not permitted"),
     "file-write-data /dev/null": Visible(["/bin/bash", "-c", "echo x > /dev/null"],
                                          "/dev/null: Operation not permitted"),
-    "file-read-data /dev/fd": Logged([PY, "-c", "import subprocess; subprocess.run(['/bin/ls'])"],
-                                     "/dev/fd"),
+    "file-read-data /dev/fd": Logged(
+        [PY, "-c", "import subprocess; subprocess.run(['/bin/ls'], capture_output=True)"],
+        "/dev/fd"),
     "mach-lookup com.apple.system.opendirectoryd.libinfo": Visible(
         [PY, "-c", "import getpass; getpass.getuser()"], "KeyError"),
 }
