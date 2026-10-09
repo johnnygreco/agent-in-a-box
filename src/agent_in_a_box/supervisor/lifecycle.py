@@ -30,7 +30,7 @@ from agent_in_a_box.supervisor import dataplane, runs
 from agent_in_a_box.supervisor.evidence import EvidenceLog, Publish
 from agent_in_a_box.supervisor.grants import grant_plan
 
-POLL_S = 0.05
+POLL_S = 0.01
 REFUSALS = (LaunchRefused, PolicyRejected, dataplane.DataPlaneError)
 
 

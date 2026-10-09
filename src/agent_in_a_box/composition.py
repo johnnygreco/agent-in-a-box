@@ -20,7 +20,7 @@ from pathlib import Path
 from agent_in_a_box.contracts import CedarEvaluator, LaunchRefused, SupervisorBackend
 from agent_in_a_box.policy.schema import REPO_ROOT
 
-# The native backend for each host platform. Landlock arrives with Milestone 1-L.
+# The native backend for each host platform.
 NATIVE_BY_PLATFORM = {"darwin": "seatbelt", "linux": "landlock"}
 
 
@@ -36,7 +36,15 @@ def _none() -> SupervisorBackend:
     return NoEnforcementBackend()
 
 
-BACKENDS: dict[str, Callable[[], SupervisorBackend]] = {"seatbelt": _seatbelt, "none": _none}
+def _landlock() -> SupervisorBackend:
+    from agent_in_a_box.supervisor.backends.landlock import LandlockBackend
+
+    return LandlockBackend()
+
+
+BACKENDS: dict[str, Callable[[], SupervisorBackend]] = {
+    "seatbelt": _seatbelt, "landlock": _landlock, "none": _none,
+}
 
 
 def _cedarpy() -> CedarEvaluator:

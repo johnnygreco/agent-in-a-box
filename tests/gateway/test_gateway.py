@@ -6,12 +6,12 @@ Expectations come from PLAN.md, Gateway and Evidence, client commands, and repla
 from __future__ import annotations
 
 import json
-import sys
 
 import pytest
 from starlette.testclient import TestClient
 
 from agent_in_a_box import composition
+from agent_in_a_box.contracts import DoctorCheck, DoctorReport
 from agent_in_a_box.experiments.controller import Controller
 from agent_in_a_box.gateway.app import EventHub, create_app
 
@@ -132,16 +132,25 @@ def test_no_command_can_choose_the_backend(client):
     assert result["status"] == "refused" and "unknown fields" in result["result"]["reason"]
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="Linux has no native backend yet")
-def test_native_runtime_refuses_runs_instead_of_falling_back(tmp_path):
+def test_native_runtime_refuses_runs_instead_of_falling_back(tmp_path, monkeypatch):
+    """A native backend whose doctor fails refuses the run; nothing runs uncontained."""
     runtime = composition.assemble(composition.RuntimeConfig(runs_dir=tmp_path / "runs"))
+    if runtime.backend is not None:
+        failing = DoctorReport(runtime.backend.name,
+                               (DoctorCheck("prerequisite", False, "missing in this test"),),
+                               native_execution=False)
+        monkeypatch.setattr(runtime.backend, "doctor", lambda: failing)
     hub = EventHub()
     client = TestClient(create_app(Controller(runtime, hub.publish), hub, TOKEN, PORT),
                         base_url=BASE)
     post(client, {"command_id": "run-native", "kind": "run", "payload": {"policy": "P0"}})
     result = wait(client, "run-native")
-    assert result["status"] == "refused" and "landlock" in result["result"]["reason"]
-    assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
+    if runtime.backend is None:
+        assert result["status"] == "refused"
+        return
+    run = result["result"]["run"]
+    assert run["status"] == "refused" and "doctor" in run["refusal"]
+    assert not any(event["kind"] in ("launched", "admitted") for event in run["events"])
 
 
 def test_run_events_stream_over_sse_labeled_none(client):

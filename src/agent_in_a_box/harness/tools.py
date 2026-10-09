@@ -83,6 +83,8 @@ def bash(args: Mapping[str, Any]) -> Observation:
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + (exc.stderr or "")
         return Observation("bash", False, _bounded(str(output)), {"timed_out": True})
+    except OSError as exc:  # the shell itself could not be started
+        return _os_error("bash", exc, "bash")
     return Observation("bash", proc.returncode == 0, _bounded(proc.stdout + proc.stderr),
                        {"exit_status": proc.returncode, "timed_out": False})
 

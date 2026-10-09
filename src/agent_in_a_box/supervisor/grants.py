@@ -21,7 +21,10 @@ from agent_in_a_box.policy.toolchain import toolchain_dir
 # Programs the harness tools and the lessons' probes run.
 RUNTIME_PROGRAMS = ("bash", "sh", "env", "cat", "ls", "echo", "head", "grep", "curl", "sleep",
                     "nohup")
-HARNESS_CODE = Path(__file__).resolve().parents[1]
+# The directory on Python's import path that holds the agent_in_a_box package. A new
+# Python process lists it to find the package, so the grant is the import root, not
+# only the package directory (decisions/0010). It holds only the read-only package.
+HARNESS_CODE = Path(__file__).resolve().parents[2]
 
 
 def place_grants(compiled: CompiledPolicy, workspace: str) -> tuple[PathGrant, ...]:
@@ -56,7 +59,8 @@ def runtime_grants(run: RunSpec) -> tuple[PathGrant, ...]:
     grants += [
         _grant(sys.base_prefix, Access.READ, Extent.SUBTREE, "Python standard library"),
         _grant(sys.prefix, Access.READ, Extent.SUBTREE, "Python environment (dependencies)"),
-        _grant(str(HARNESS_CODE), Access.READ, Extent.SUBTREE, "harness code, read-only"),
+        _grant(str(HARNESS_CODE), Access.READ, Extent.SUBTREE,
+               "harness code and its import root, read-only"),
         _grant(run.workspace, Access.METADATA, Extent.FILE, "working directory"),
     ]
     grants.append(_grant(run.home, Access.READ, Extent.SUBTREE, "run home"))

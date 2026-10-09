@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -81,11 +82,13 @@ def test_rerunning_the_session_starts_nothing(trailer):
     assert result.returncode == 0 and sorted((state / "runs").iterdir()) == before
 
 
-def test_doctor_refuses_native_execution_without_a_backend(tmp_path):
+def test_doctor_refuses_native_execution_when_a_prerequisite_is_missing(tmp_path):
+    """With bubblewrap off the PATH (Linux) or on macOS before Milestone 1, the doctor refuses."""
+    environment = {"PATH": str(Path(sys.executable).parent), "HOME": str(tmp_path)}
     result = subprocess.run([*CLI, "--state-dir", str(tmp_path), "doctor"], capture_output=True,
-                            text=True, timeout=60)
-    if sys.platform == "linux":
-        assert result.returncode == 1 and "no fallback" in result.stdout
+                            text=True, timeout=60, env=environment)
+    assert result.returncode == 1
+    assert "native execution: disabled" in result.stdout or "no fallback" in result.stdout
 
 
 def test_bundle_cli_show_and_replay(trailer):

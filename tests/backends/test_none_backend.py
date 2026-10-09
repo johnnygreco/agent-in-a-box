@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
 
@@ -26,11 +25,16 @@ def test_not_selectable_without_explicit_test_configuration():
         composition.select_backend(composition.RuntimeConfig(backend="none"))
 
 
-def test_never_a_fallback_for_a_missing_native_backend():
+def test_the_default_is_never_the_test_backend():
     runtime = composition.assemble(composition.RuntimeConfig())
-    if sys.platform == "linux":
-        assert runtime.backend is None and "landlock" in runtime.backend_refusal
     assert runtime.backend is None or runtime.backend.name != "none"
+
+
+def test_never_a_fallback_for_a_missing_native_backend(monkeypatch):
+    monkeypatch.setattr(composition, "NATIVE_BY_PLATFORM", {})
+    runtime = composition.assemble(composition.RuntimeConfig())
+    assert runtime.backend is None
+    assert "no native backend" in runtime.backend_refusal
 
 
 def test_containment_report_cannot_claim_containment_for_none():
