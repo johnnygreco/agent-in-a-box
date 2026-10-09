@@ -14,17 +14,33 @@ from agent_in_a_box.contracts import CedarEvaluator
 from agent_in_a_box.experiments import records
 from agent_in_a_box.experiments.steps import CHAPTER5, TRAILER, Chapter5, Trailer, steps_by_name
 from agent_in_a_box.glossary import TERMS
+from agent_in_a_box.policy import requests
 
 
 def label(document: dict) -> dict[str, Any]:
     return {
         "title": document["title"],
+        "published": False,
         "bundle_id": document["bundle_id"],
         "viewed_as": document["viewed_as"],
         "enforcement": document["enforcement"],
-        "created": document["created"],
+        "built": document["created"],
         "test_backend": "none" in document["enforcement"],
+        "toolchain": toolchain_versions(document),
     }
+
+
+def toolchain_versions(document: dict) -> dict[str, str]:
+    manifest = document["tool_manifest"]
+    solver = str(manifest.get("cvc5", "unknown")).removeprefix("This is ").split(" [")[0]
+    solver = solver.replace(" version", "")
+    return {"cedar_policy": manifest.get("cedar_policy", "unknown"),
+            "symcc": manifest.get("cedar_policy_symcc", "unknown"), "solver": solver,
+            "cedarpy": manifest.get("cedarpy", "unknown")}
+
+
+def provenance(document: dict, enforcement: str) -> dict[str, str]:
+    return {"mode": "recorded", "enforcement": enforcement, **toolchain_versions(document)}
 
 
 def event_text(event: dict) -> str:
@@ -112,19 +128,31 @@ def policy_names(document: dict) -> dict[str, str]:
     return {policy_hash: policy["name"] for policy_hash, policy in document["policies"].items()}
 
 
-def chapter0(document: dict) -> dict[str, Any]:
+def chapter0(document: dict, evaluator: CedarEvaluator) -> dict[str, Any]:
     steps = steps_by_name(document, TRAILER)
     names = policy_names(document)
+
+    def run(step: str) -> dict:
+        view = run_view(steps[step])
+        return {**view, "provenance": provenance(document, view["enforcement"])}
+
+    def analysis(step: str) -> dict:
+        return {**analysis_view(steps[step], names),
+                "provenance": provenance(document, "analysis only")}
+
+    request = requests.http_request("reference.fixture", 80, "GET", "/reference")
+    examples = {name: evaluator.evaluate(records.policy_named(document, name), request).decision
+                for name in ("P0", "P1")}
     return {
         "label": label(document),
         "policies": {name: records.policy_named(document, name).policy_text
                      for name in ("P0", "P1")},
-        "run_p0": run_view(steps[Trailer.RUN_P0]),
-        "run_p1": run_view(steps[Trailer.RUN_P1]),
-        "verify": analysis_view(steps[Trailer.VERIFY], names),
-        "inspect": {"P0": run_view(steps[Trailer.INSPECT_P0]),
-                    "P1": run_view(steps[Trailer.INSPECT_P1])},
-        "repair": analysis_view(steps[Trailer.REPAIR], names),
+        "examples": examples,
+        "run_p0": run(Trailer.RUN_P0),
+        "run_p1": run(Trailer.RUN_P1),
+        "verify": analysis(Trailer.VERIFY),
+        "inspect": {"P0": run(Trailer.INSPECT_P0), "P1": run(Trailer.INSPECT_P1)},
+        "repair": analysis(Trailer.REPAIR),
         "task": steps[Trailer.TASK]["result"]["label"],
     }
 
@@ -133,20 +161,30 @@ def chapter5(document: dict, evaluator: CedarEvaluator) -> dict[str, Any]:
     steps = steps_by_name(document, CHAPTER5)
     names = policy_names(document)
     variants = [records.policy_named(document, name) for name in ("P0", "P1", "P2")]
+
+    def run(step: str) -> dict:
+        view = run_view(steps[step])
+        return {**view, "provenance": provenance(document, view["enforcement"])}
+
+    def analysis(step: str) -> dict:
+        return {**analysis_view(steps[step], names),
+                "provenance": provenance(document, "analysis only")}
+
     return {
         "label": label(document),
         "policies": {variant.name: variant.policy_text for variant in variants},
         "grid": records.matrix(evaluator, variants, ["GET", "POST", "PUT"],
                                ["/reference", "/missing"]),
-        "p1": analysis_view(steps[Chapter5.P0_TO_P1], names),
-        "p2": analysis_view(steps[Chapter5.P0_TO_P2], names),
-        "p2_runs": {"P0": run_view(steps[Chapter5.P2_WITNESS_UNDER_P0]),
-                    "P2": run_view(steps[Chapter5.P2_WITNESS_UNDER_P2])},
-        "repair": analysis_view(steps[Chapter5.REPAIR], names),
+        "grid_provenance": provenance(document, "analysis only"),
+        "p1": analysis(Chapter5.P0_TO_P1),
+        "p2": analysis(Chapter5.P0_TO_P2),
+        "p2_runs": {"P0": run(Chapter5.P2_WITNESS_UNDER_P0),
+                    "P2": run(Chapter5.P2_WITNESS_UNDER_P2)},
+        "repair": analysis(Chapter5.REPAIR),
         "task_p0": steps[Chapter5.TASK_P0]["result"]["label"],
-        "deny_all": analysis_view(steps[Chapter5.DENY_ALL], names),
+        "deny_all": analysis(Chapter5.DENY_ALL),
         "task_p3": steps[Chapter5.TASK_P3]["result"]["label"],
-        "starved": analysis_view(steps[Chapter5.STARVED], names),
+        "starved": analysis(Chapter5.STARVED),
     }
 
 

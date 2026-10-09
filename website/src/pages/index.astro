@@ -1,14 +1,16 @@
 ---
 import Lesson from "../layouts/Lesson.astro";
+import { url } from "../lib/url";
 ---
 <Lesson title="Contents">
+  <img class="hero" src={url("/banner.svg")} alt="Agent in a Box: a chalkboard drawing of the particle-in-a-box exercise, with an AI agent as the particle inside two infinite walls, three standing waves, and one attempted request stopped at the wall." />
   <h1>Agent in a Box</h1>
   <p>How to sandbox an agent, and how to enforce and reason about its permissions with Cedar
-    policies and formal analysis. This development scaffold renders two chapter drafts from bundles
-    produced under the test backend.</p>
+    policies and formal analysis. The course is in development; these two chapters are drafts.</p>
   <ul>
-    <li><a href="/chapters/0/">0. An agent inside a boundary</a>: the examples pass. Did the agent gain permission?</li>
-    <li><a href="/chapters/5/">5. Examples and proofs</a>: the examples still pass. Did the agent gain permission?</li>
-    <li><a href="/glossary/">Glossary of claim words</a></li>
+    <li><a href={url("/chapters/0/")}>0. An agent inside a boundary</a>: the examples pass. Did the agent gain permission?</li>
+    <li><a href={url("/chapters/5/")}>5. Examples and proofs</a>: the examples still pass. Did the agent gain permission?</li>
+    <li><a href={url("/glossary/")}>Glossary of claim words</a></li>
   </ul>
+  <p>Source, setup, and status: <a href="https://github.com/johnnygreco/agent-in-a-box">github.com/johnnygreco/agent-in-a-box</a>.</p>
 </Lesson>

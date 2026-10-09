@@ -1,9 +1,10 @@
 ---
 // A result label. Only glossary terms are allowed; anything else fails the build.
 import glossary from "../data/glossary.json";
+import { url } from "../lib/url";
 const { term } = Astro.props;
 const entry = glossary.find((t) => t.term === term);
 if (!entry) throw new Error(`not a glossary term: ${term}`);
 const slug = term.replaceAll(" ", "-");
 ---
-<a class="label" data-term={term} href={`/glossary/#${slug}`} title={entry.means}>{term}</a>
+<a class="label" data-term={term} href={url(`/glossary/#${slug}`)} title={entry.means}>{term}</a>

@@ -1,9 +1,11 @@
 ---
 import Label from "./Label.astro";
+import Provenance from "./Provenance.astro";
 const { result, title } = Astro.props;
 ---
 <section>
   <h3>{title}</h3>
+  <Provenance provenance={result.provenance} />
   <p>Search for <code>x</code> such that <code>{result.domain.name}(x) ∧ Allow({result.new}, x) ∧ ¬Allow({result.old}, x)</code>.
     Solver status: <strong>{result.status.toUpperCase()}</strong>.
     Result: {result.labels.map((l, i) => (<>{i > 0 && " and "}<Label term={l} /></>))}.</p>

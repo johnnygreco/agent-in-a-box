@@ -1,7 +1,9 @@
 ---
 import Label from "./Label.astro";
-const { rows, policies } = Astro.props;
+import Provenance from "./Provenance.astro";
+const { rows, policies, provenance } = Astro.props;
 ---
+<Provenance provenance={provenance} />
 <table>
   <caption>A bounded method × path grid. This is testing: it covers only the cells shown.</caption>
   <thead><tr><th>Method</th><th>Path</th>{policies.map((p) => <th>{p}</th>)}</tr></thead>

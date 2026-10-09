@@ -1,13 +1,23 @@
 ---
-// What the evidence on this page is. Shown before any result.
+// What the evidence on this page is, shown before any result.
+import Label from "./Label.astro";
 const { label } = Astro.props;
+const tools = label.toolchain;
+const native = label.enforcement.filter((value) => value !== "analysis only");
 ---
 <div class="banner" role="note">
-  <strong>{label.viewed_as === "recorded" ? "Recorded evidence" : "Evidence"}</strong> from bundle
-  <code>{label.bundle_id.slice(0, 12)}</code> ({label.created}). Enforcement:
-  <strong>{label.enforcement.join(", ")}</strong>.
+  <p><strong><Label term="recorded" /> evidence</strong>, built {label.built} with Cedar {tools.cedar_policy},
+    SymCC {tools.symcc}, and {tools.solver}.</p>
+  {label.published && native.length === 0 && (
+    <p>The solver and Cedar results on this page were produced when this site was built (analysis
+      only: no agent ran). No native run recording has been published yet, so the run panels say
+      so instead of showing a run.</p>
+  )}
+  {label.published && native.length > 0 && (
+    <p>Run panels come from native recordings with enforcement: {native.join(", ")}.</p>
+  )}
   {label.test_backend && (
-    <span> These runs used the test backend: nothing was contained, and no kernel profile was
-    installed. Only the proxy's checks applied. This page is a development build and is not shipped.</span>
+    <p>Development build from test-backend bundles (enforcement: none): no kernel profile was
+      installed. This page is never published.</p>
   )}
 </div>

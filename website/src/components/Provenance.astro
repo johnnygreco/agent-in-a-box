@@ -1,0 +1,11 @@
+---
+// Where one result came from: recorded, the enforcement or "analysis only",
+// and the Cedar and solver versions that produced it.
+import Label from "./Label.astro";
+const { provenance } = Astro.props;
+---
+<p class="provenance">
+  <Label term="recorded" /> · mode: {provenance.mode} · {provenance.enforcement === "analysis only"
+    ? "analysis only: no agent ran"
+    : `enforcement: ${provenance.enforcement}`} · Cedar {provenance.cedar_policy} · SymCC {provenance.symcc} · {provenance.solver}
+</p>

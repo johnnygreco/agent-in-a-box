@@ -1,4 +1,3 @@
-# Not yet run: the repository has no remote (STATUS.md, Questions for the owner).
 name: ci
 on: [push, pull_request]
 
@@ -25,3 +24,45 @@ jobs:
       - run: uv run marimo check notebooks/*.py
       # Native conformance probes skip until a backend's doctor passes on the runner.
       - run: uv run pytest -ra
+
+  # The course website, deployed to GitHub Pages from main after the tests pass on
+  # both runners. It is built from publishable data only (decisions/0011): analysis
+  # results produced here with the pinned toolchain, and native recordings from
+  # bundles/. The publishing step refuses any test-backend bundle.
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: platform-independent
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deployment at a time; a newer push replaces an older pending one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.24"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: website/.nvmrc
+      - run: uv sync --locked
+      - run: python3 tooling/bootstrap.py
+      - run: npm ci
+        working-directory: website
+      - uses: actions/configure-pages@v6.0.0
+      - run: uv run agent-in-a-box site-data --published --out website/src/data
+      - run: npm run build
+        working-directory: website
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: website/dist
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1

@@ -1,23 +1,34 @@
 ---
 import Label from "./Label.astro";
 import BoundaryDiagram from "./BoundaryDiagram.astro";
+import Provenance from "./Provenance.astro";
 const { run, title } = Astro.props;
 ---
 <section>
-  <h3>{title} <span class="muted">(policy {run.policy}; enforcement: {run.enforcement})</span></h3>
-  <table>
-    <thead><tr><th>Request</th><th>Outcome</th><th>Checked by</th><th>Determining policies</th></tr></thead>
-    <tbody>
-      {run.attempts.map((a) => (
-        <tr>
-          <td><code>{a.method} {a.path}</code></td>
-          <td><Label term={a.label} /></td>
-          <td>{a.refused_by ? `refused at the ${a.refused_by} check` : "all four proxy checks passed"}</td>
-          <td>{a.determining.length ? a.determining.map((d) => <code>{d} </code>) : "none"}</td>
-        </tr>
-      ))}
-    </tbody>
-  </table>
-  <p>The fixture service received {run.receipts} request(s).</p>
-  <details><summary>Boundary diagram and event list</summary><BoundaryDiagram events={run.events} testBackend={run.enforcement === "none"} /></details>
+  {run.placeholder ? (
+    <>
+      <h3>{title}</h3>
+      <p class="placeholder">{run.placeholder}</p>
+    </>
+  ) : (
+    <>
+      <h3>{title} <span class="muted">(policy {run.policy}; enforcement: {run.enforcement})</span></h3>
+      <Provenance provenance={run.provenance} />
+      <table>
+        <thead><tr><th>Request</th><th>Outcome</th><th>Checked by</th><th>Determining policies</th></tr></thead>
+        <tbody>
+          {run.attempts.map((a) => (
+            <tr>
+              <td><code>{a.method} {a.path}</code></td>
+              <td><Label term={a.label} /></td>
+              <td>{a.refused_by ? `refused at the ${a.refused_by} check` : "all four proxy checks passed"}</td>
+              <td>{a.determining.length ? a.determining.map((d) => <code>{d} </code>) : "none"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p>The fixture service received {run.receipts} request(s).</p>
+      <details><summary>Boundary diagram and event list</summary><BoundaryDiagram events={run.events} testBackend={run.enforcement === "none"} /></details>
+    </>
+  )}
 </section>

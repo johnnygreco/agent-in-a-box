@@ -33,3 +33,6 @@ svg text { fill: var(--fg); font-size: 12px; }
 svg .layer rect { fill: var(--panel); stroke: var(--rule); }
 svg .layer.active rect { fill: var(--active); stroke: var(--accent); stroke-width: 2; }
 .muted { color: var(--muted); }
+.provenance { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 0.5rem; }
+.placeholder { border-left: 3px solid var(--rule); padding: 0.4rem 0.75rem; color: var(--muted); }
+.hero { width: 100%; height: auto; margin: 1rem 0; }

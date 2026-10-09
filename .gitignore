@@ -19,3 +19,6 @@ website/src/data/*.json
 
 # Local working notes; never committed
 inspiration/
+
+# Website: the banner, copied from assets/ at build time
+website/public/banner.svg

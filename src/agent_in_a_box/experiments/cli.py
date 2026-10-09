@@ -3,7 +3,8 @@
     agent-in-a-box doctor [--test-backend]
     agent-in-a-box gateway serve [--port N] [--test-backend]
     agent-in-a-box trailer|chapter5 [--test-backend] [--session NAME] [--gateway STATE_FILE]
-    agent-in-a-box site-data --trailer BUNDLE --chapter5 BUNDLE [--out DIR]
+    agent-in-a-box site-data --published [--bundles DIR] [--out DIR]
+    agent-in-a-box site-data --trailer BUNDLE --chapter5 BUNDLE [--out DIR]   (development)
     agent-in-a-box bundle show PATH | agent-in-a-box bundle replay PATH
 
 Without --test-backend, runs use this host's native backend or are refused.
@@ -109,17 +110,36 @@ def experiment(args: argparse.Namespace) -> int:
 
 
 def site_data(args: argparse.Namespace) -> int:
-    """Write the website's view models from development bundles (never shipped)."""
-    from agent_in_a_box.experiments import views
+    """Write the website's view models.
+
+    --published: only publishable evidence (experiments/publish.py), for the
+    deployed site. Otherwise: development bundles, for local work only.
+    """
+    from agent_in_a_box.experiments import publish, views
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    evaluator = runtime_for(args).evaluator
-    written = {
-        "chapter0.json": views.chapter0(bundles.load(Path(args.trailer))),
-        "chapter5.json": views.chapter5(bundles.load(Path(args.chapter5)), evaluator),
-        "glossary.json": views.glossary(),
-    }
+    evaluator = composition.select_evaluator("cedarpy")
+    if args.published:
+        try:
+            native = publish.native_recordings(Path(args.bundles))
+        except publish.PublishRefused as refusal:
+            print(f"Refused to publish: {refusal}", file=sys.stderr)
+            return 1
+        written = {
+            "chapter0.json": publish.chapter0(evaluator, native),
+            "chapter5.json": publish.chapter5(evaluator, native),
+            "glossary.json": views.glossary(),
+        }
+    else:
+        if not (args.trailer and args.chapter5):
+            print("development data needs --trailer and --chapter5", file=sys.stderr)
+            return 2
+        written = {
+            "chapter0.json": views.chapter0(bundles.load(Path(args.trailer)), evaluator),
+            "chapter5.json": views.chapter5(bundles.load(Path(args.chapter5)), evaluator),
+            "glossary.json": views.glossary(),
+        }
     for name, data in written.items():
         (out / name).write_text(json.dumps(data, indent=1) + "\n")
     print(f"wrote {', '.join(written)} to {out}")
@@ -160,9 +180,13 @@ def main(argv: list[str] | None = None) -> int:
         run.add_argument("--session", help="name for this experiment's command IDs")
         run.add_argument("--gateway", help="state file of a running gateway")
         run.set_defaults(run=experiment)
-    site = with_backend(commands.add_parser("site-data"))
-    site.add_argument("--trailer", required=True, help="chapter 0 trailer bundle")
-    site.add_argument("--chapter5", required=True, help="chapter 5 bundle")
+    site = commands.add_parser("site-data")
+    site.add_argument("--published", action="store_true",
+                      help="publishable evidence only: analysis now, native bundles from --bundles")
+    site.add_argument("--bundles", default=str(composition.REPO_ROOT / "bundles"),
+                      help="native recordings to publish (published mode)")
+    site.add_argument("--trailer", help="chapter 0 trailer bundle (development mode)")
+    site.add_argument("--chapter5", help="chapter 5 bundle (development mode)")
     site.add_argument("--out", default=str(composition.REPO_ROOT / "website" / "src" / "data"))
     site.set_defaults(run=site_data)
     show = with_backend(commands.add_parser("bundle"))
