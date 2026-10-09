@@ -8,7 +8,7 @@ A course and a small working runtime for learning how to sandbox an agent and ho
 
 The course website is at https://johnnygreco.dev/agent-in-a-box/.
 
-**Status.** The Linux backend works: on a supported Linux host (decisions/0012), runs are confined with bubblewrap namespaces, a Landlock ruleset, and a seccomp filter, and every record says `enforcement: landlock`. The macOS backend (Seatbelt, the primary one) is not written yet, so native runs on a Mac are refused for now. On any host, `--test-backend` selects `NoEnforcementBackend`, a test double that **contains nothing**: the agent runs as an ordinary process, and every record says `enforcement: none`. If the native backend's doctor refuses, runs are refused; nothing falls back to running unconfined.
+**Status.** Both native backends work. On a Mac (macOS 15 on Apple silicon is validated, decisions/0015), runs are confined by a Seatbelt profile that the launcher applies to itself before the agent starts, and every record says `enforcement: seatbelt`. On a supported Linux host (decisions/0012), runs are confined with bubblewrap namespaces, a Landlock ruleset, and a seccomp filter, and every record says `enforcement: landlock`. On any host, `--test-backend` selects `NoEnforcementBackend`, a test double that **contains nothing**: the agent runs as an ordinary process, and every record says `enforcement: none`. If the native backend's doctor refuses, runs are refused; nothing falls back to running unconfined.
 
 ## Setup
 
@@ -27,7 +27,7 @@ Everything installs under your home directory or this repository. Nothing needs 
    python3 tooling/bootstrap.py --with-cli
    ```
 
-4. Check the setup. On Linux the doctor checks Landlock (ABI 2 or later), bubblewrap, unprivileged user namespaces, and seccomp, and says exactly what is missing. Without bubblewrap, install your distribution's `bubblewrap` package. On Ubuntu 24.04 and later, AppArmor restricts unprivileged user namespaces by default; the doctor names the setting.
+4. Check the setup. On macOS the doctor confines a trial process with the profile's baseline, checks from outside that the kernel reports it confined, and checks that the baseline runs the shell and refuses a file outside the profile; nothing needs installing. On Linux the doctor checks Landlock (ABI 2 or later), bubblewrap, unprivileged user namespaces, and seccomp, and says exactly what is missing. Without bubblewrap, install your distribution's `bubblewrap` package. On Ubuntu 24.04 and later, AppArmor restricts unprivileged user namespaces by default; the doctor names the setting.
 
    ```sh
    uv run agent-in-a-box doctor

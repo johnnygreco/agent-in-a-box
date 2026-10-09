@@ -114,14 +114,14 @@ Proceed with the default unless an ADR records a different choice.
 | Evaluator binding | Decided: `cedarpy` in process for concrete evaluation; a small Rust bridge (`native/cedar-bridge/`) for SymCC analysis, also usable as an interchangeable evaluator; the official CLI only as a test oracle, because it has no JSON output for decisions or witnesses ([ADR 0002](decisions/0002-cedar-toolchain-and-evaluator-binding.md)). | ADR 0002 |
 | Solver | Decided: cvc5 1.3.1, the version SymCC documents, non-GPL static builds pinned by checksum ([ADR 0002](decisions/0002-cedar-toolchain-and-evaluator-binding.md)). | ADR 0002 |
 | HTTP/TLS proxy component | Decided: mitmproxy 12.2.3 in regular mode, one process per run, with our decision path deciding every request before anything is sent upstream ([ADR 0004](decisions/0004-proxy-component-mitmproxy.md)). | ADR 0004 |
-| macOS launcher | Evaluate `sandbox-exec -f` with a generated profile and a small helper calling `sandbox_init`. Choose what passes inheritance, grant, egress, and cleanup tests with the least custom native code. | ADR in M1 |
+| macOS launcher | Decided: a Python launcher that confines itself with `sandbox_init` through ctypes, probes the confinement, and execs the workload; no compiled helper. `sandbox-exec -f` enforced identically on the runner and was rejected for its error reporting. Teardown finds the run's processes by a marker only its profile allows ([ADR 0014](decisions/0014-macos-launcher.md)). | ADR 0014 |
 | Linux launcher | Decided: bubblewrap for the namespaces, the filesystem view, and loading a hand-built seccomp filter; a Python launcher that applies Landlock through its system calls, probes the confinement, and execs the workload; the proxy reached through a mounted Unix socket ([ADR 0010](decisions/0010-linux-launcher.md)). | ADR 0010 |
 | Python | Decided: Python 3.12.15, uv 0.12.24, pytest, ruff; Rust 1.89 or later for the Cedar bridge ([ADR 0003](decisions/0003-development-toolchain.md)). | ADR 0003 |
 | Web | Decided: Astro 7.3.8 with MDX on Node 24.21.0 LTS, telemetry off; TypeScript islands arrive with hosted interactivity ([ADR 0006](decisions/0006-website-toolchain.md)). | ADR 0006 |
 | Hosted Cedar interactivity | Try the pinned version's WebAssembly build in the browser; fall back to precomputed decision tables over the bounded domain. | ADR |
 | Scripted model format | A YAML strategy table loaded by the scripted adapter (CURRICULUM.md). | Proceed |
 | Oracle contract cases | Expected outcomes come from an independent implementation (the official Cedar CLI for authorization semantics) or are authored from this plan's stated rules before the code exists; never from the implementation under test. Cases derived from third-party material stay outside the public tree and their test skips when they are absent. Decided: `tests/oracle/` from the official CLI and hand-authored compiler cases ([ADR 0009](decisions/0009-oracle-cases.md)). | ADR 0009 |
-| Supported platform matrix | Decide from native results; do not extrapolate from other projects' claims. Linux decided: Debian 12 (kernel 6.1, Landlock ABI 2) and Ubuntu 24.04 (kernel 6.17, ABI 7) ([ADR 0012](decisions/0012-linux-supported-matrix.md)); macOS in M1. | ADR 0012 / ADR in M1 |
+| Supported platform matrix | Decide from native results; do not extrapolate from other projects' claims. Linux decided: Debian 12 (kernel 6.1, Landlock ABI 2) and Ubuntu 24.04 (kernel 6.17, ABI 7) ([ADR 0012](decisions/0012-linux-supported-matrix.md)). macOS decided: macOS 15.7.9 (24G830) on Apple silicon, the `macos-15` runner ([ADR 0015](decisions/0015-macos-supported-matrix.md)). | ADR 0012 / ADR 0015 |
 
 ## Who this is for and what they learn
 
@@ -542,7 +542,7 @@ agent-in-a-box/
     experiments/           # Scenarios, bundles, replay, CLI
   native/
     cedar-bridge/          # Platform-neutral Rust bridge to Cedar and SymCC (ADR 0002)
-    macos/                 # Seatbelt launcher helper if needed
+    macos/                 # Seatbelt launcher helper if needed (none: ADR 0014)
     linux/                 # Landlock and seccomp helper if needed
   policies/                # P0–P6 and schema
   fixtures/                # Measurements, fixture service variants, canaries
@@ -621,6 +621,8 @@ Exit: the trailer runs end to end on Linux via the CLI under the test backend wi
 ### Milestone 1 — Native boundary feasibility (macOS)
 
 Platform: macOS on Apple silicon, which the GitHub-hosted `macos-15` runner provides; STATUS.md records the runner image, macOS build, and run URL as the native validation. Goal: prove the kernel boundary and choose the launcher.
+
+Approach (2026-10-09): a Python launcher calling `sandbox_init`, inside and outside probes, teardown by profile marker, and a baseline confirmed one entry at a time on the runner ([ADR 0014](decisions/0014-macos-launcher.md)); the supported matrix in [ADR 0015](decisions/0015-macos-supported-matrix.md). The CI job `macos-native` runs the native suites with `AGENT_IN_A_BOX_REQUIRE_NATIVE=seatbelt`.
 
 Deliverables: launcher evaluation and ADR; `SeatbeltBackend` and SBPL renderer; native test suite covering profile application, Bash and child inheritance, declared grants, canaries and protected state, symlink and replacement cases, proxy-only egress across IPv4, IPv6, UDP, alternate loopback, and IPC, and cleanup of detached descendants; supported macOS matrix ADR; doctor command.
 

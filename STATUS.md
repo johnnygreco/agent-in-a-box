@@ -4,9 +4,9 @@ Working state for the implementing agent. Update at the end of every working ses
 
 ## Current milestone
 
-M0 is closed and pushed, with CI green on `ubuntu-24.04` and `macos-15`. Milestone 1-L (Linux backend) is complete: every gate item below is checked, natively, on two hosts (ADR 0012). The GitHub Pages site is live at https://johnnygreco.dev/agent-in-a-box/ (ADR 0011). Next: Milestone 1, the macOS Seatbelt backend, which CI's `macos-15` runner can now exercise (PLAN.md). Platform-independent Milestone 2 work can proceed alongside it.
+M0 is closed and pushed, with CI green on `ubuntu-24.04` and `macos-15`. Milestone 1-L (Linux backend) is complete, natively, on two hosts (ADR 0012). Milestone 1 (macOS Seatbelt) is complete on branch `m1-seatbelt`: every gate item below is checked, natively, on the `macos-15` runner (ADRs 0014 and 0015), and the branch's CI is green on all jobs. It is held from `main` only for the owner's answer to question 7 below (a shared runtime-grant change). The GitHub Pages site is live at https://johnnygreco.dev/agent-in-a-box/ (ADR 0011). Next: Milestone 2 (first complete experiment, Seatbelt recordings for the site, pilot gate).
 
-Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, `python3 tooling/bootstrap.py --with-cli`, and `npm ci` in `website/` (see README.md). Last result (2026-10-09, this checkout): 821 passed, 11 skipped. The skips are the 10 Seatbelt conformance probes (no macOS here) and 1 source-route entry for code not yet written (the model bridge). The Landlock conformance probes and Linux-only extras ran natively. The count includes 48 local cases from the git-ignored working folder; a public checkout skips that module.
+Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, `python3 tooling/bootstrap.py --with-cli`, and `npm ci` in `website/` (see README.md). Last result (2026-10-09, this Linux checkout): 843 passed, 41 skipped. The skips are the 10 Seatbelt conformance probes and 30 macOS-only native checks (no macOS here) and 1 source-route entry for code not yet written (the model bridge). The Landlock conformance probes and Linux-only extras ran natively. On the `macos-15` runner the whole suite runs, Seatbelt included (CI job `platform-independent (macos-15)`). The count includes 48 local cases from the git-ignored working folder; a public checkout skips that module.
 
 ## Last native validation
 
@@ -14,7 +14,9 @@ Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, 
 - Debian 12 (bookworm), kernel 6.1.0-50-cloud-amd64, Landlock ABI 2, bubblewrap 0.8.0, x86-64 KVM guest (AMD EPYC 7B12, 8 vCPUs): the development workspace.
 - Ubuntu 24.04.5 LTS, kernel 6.17.0-1022-azure, Landlock ABI 7, bubblewrap 0.9.0, x86-64 GitHub-hosted runner, with `kernel.apparmor_restrict_unprivileged_userns=0`: CI job `linux-native`, required to run rather than skip.
 
-**macOS (`SeatbeltBackend`): none.** No Seatbelt behavior has been exercised. No macOS enforcement claim may be made anywhere in this repository until this section names a macOS build, hardware, date, and the passing test suite.
+**macOS (`SeatbeltBackend`), 2026-10-09.** Suites: `tests/backends/conformance` (10 shared probes, `enforcement: seatbelt`), `tests/native/macos/test_seatbelt_baseline.py` (17 baseline entries, each removed in turn with its failure shown, plus a completeness check), and `tests/native/macos/test_seatbelt_extras.py` (12 macOS-only checks), all passing, with the doctor passing. Approach: a Python launcher that applies the SBPL profile with `sandbox_init`, inside self-probes and outside `sandbox_check` confirmation, teardown by profile marker (ADR 0014).
+- Runner image `macos15` 20260907.0337.1 (GitHub-hosted `macos-15`), macOS 15.7.9 build 24G830, Darwin 24.6.0, Apple M1 (Virtual), `VirtualMac2,1`, arm64, SIP disabled on the runner. CI job `macos-native`, required to run (`AGENT_IN_A_BOX_REQUIRE_NATIVE=seatbelt`): run https://github.com/johnnygreco/agent-in-a-box/actions/runs/37997481511 (commit on branch `m1-seatbelt`).
+- Rejected cases recorded in ADR 0014: `sandbox-exec -f` (identical enforcement, worse error reporting), a compiled helper, teardown by process group, a path marker, `(remote ip ...)` (allows UDP), an IP-literal network host (the kernel rejects it), and relying on `(deny default)` for process information (it does not cover it).
 
 ## Gate checklist
 
@@ -34,13 +36,14 @@ Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, 
 - [x] Notebooks 01 and 04 drafted in recorded mode
 
 ### M1 — Native boundary feasibility (macOS; the GitHub `macos-15` runner counts)
-- [ ] Launcher approach chosen and recorded as an ADR
-- [ ] Profile applies; Bash and child Python inherit it
-- [ ] Declared grants work; canaries, protected state, and symlink/replacement cases are blocked
-- [ ] Proxy-only egress; direct IPv4/IPv6, UDP, alternate loopback, and IPC paths blocked as specified
-- [ ] Cleanup covers detached descendants; limits and gaps recorded
-- [ ] Supported macOS matrix recorded as an ADR
-- [ ] Doctor command passes on the named configuration
+Complete on branch `m1-seatbelt` (CI run 37997481511); merges to `main` after question 7.
+- [x] Launcher approach chosen and recorded as an ADR (ADR 0014: a Python launcher calling `sandbox_init` through ctypes; `sandbox-exec -f` evaluated on the runner and rejected; no compiled helper)
+- [x] Profile applies; Bash and child Python inherit it (a grandchild Python reports itself confined; the launcher reports the hash of the profile it applied)
+- [x] Declared grants work; canaries, protected state, and symlink/replacement cases are blocked (write-only, read-only, truncate, replace, hard link, symlink, rename and removal of the write root)
+- [x] Proxy-only egress; direct IPv4/IPv6, UDP, alternate loopback, and IPC paths blocked as specified (also Unix sockets, kernel-control sockets, and DNS; the IPv6 twin of the proxy port is held by the backend)
+- [x] Cleanup covers detached descendants; limits and gaps recorded (a `setsid` grandchild is found by its profile marker, frozen, and killed; limits in ADR 0014 and the capability notes)
+- [x] Supported macOS matrix recorded as an ADR (ADR 0015)
+- [x] Doctor command passes on the named configuration (CI job `macos-native`, with the toolchain installed)
 
 ### M1-L — Linux enforcement backend (scheduled, secondary)
 Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.md, Platform decision, primacy rules. Any shared-contract change motivated here needs an ADR stating macOS impact is nil.
@@ -55,7 +58,7 @@ Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.m
 - [x] PID namespace cleanup covers detached descendants (including a new-session descendant)
 - [x] Doctor checks Landlock LSM, ABI version, unprivileged user namespaces, and bubblewrap (and seccomp; it names the AppArmor restriction when that is the cause)
 - [x] Supported kernel and distribution matrix recorded as an ADR (ADR 0012)
-- [x] `reference/platform-differences.md` rows confirmed by the probe suite (Linux rows; macOS rows stay to confirm)
+- [x] `reference/platform-differences.md` rows confirmed by the probe suite (Linux rows; macOS rows confirmed in M1)
 
 ### M2 — First complete experiment and pilot gate
 - [x] GitHub Pages deployment: CI builds the site with the project base path and deploys it from `main` after tests pass; the publishing step refuses `enforcement: none` bundles; lessons without a native recording say so; site live at https://johnnygreco.dev/agent-in-a-box/ (owner request, 2026-10-09; may land before M1-L completes) Live since 2026-10-09 (ADR 0011): chapters 0 and 5 show analysis results produced at build time and placeholders for runs without a native recording.
@@ -81,13 +84,16 @@ Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.m
 
 ## Blockers
 
-- **Milestone 1 (macOS Seatbelt) needs a Mac.** The SBPL renderer exists and is tested only as text; the launcher, probes, and doctor are not written. The conformance suite skips Seatbelt here because its doctor refuses on Linux.
+- **Merging Milestone 1 to `main` waits on question 7.** Nothing else blocks; the branch is green.
 
 ## Follow-ups (implementing agent)
 
 - arm64 Linux is untested natively; the seccomp program's arm64 variant is checked only by unit tests (ADR 0012).
 - Redirect handling and its tests are scheduled with Milestone 3's bypass tests (ADR 0004).
-- The `SeatbeltBackend` OS baseline (`os_baseline.py`) was rewritten from first principles, one reasoned rule per entry (ADR 0008). It must be confirmed on a Mac in Milestone 1, and `sysctl-read` narrowed to named parameters there.
+- macOS beyond the runner is untested: a physical Mac with SIP enabled, macOS 26 (a `macos-26` CI runner would add a matrix row), and Intel Macs (ADR 0015).
+- Seatbelt recordings for the website: the trailer and chapter 5 have not been run natively on macOS yet; when they are, they replace the Linux recordings in `bundles/` (primacy rule 4).
+- Python reads `/private/etc/ssl/cert.pem` when it builds an HTTPS context, which the profile refuses. Plain HTTP through the proxy is unaffected; Milestone 3's inspected HTTPS will point the workload at the run's own CA instead.
+- macOS's `/bin/bash` 3.2 writes here-documents outside every grant, so they fail under the profile (disclosed; a test records the limit). A newer bash is not part of the baseline.
 - The schema's vocabulary (entity types, actions, endpoint attributes) was designed in the first session with an external schema in view. Its comments are now our own, and no source is named. If the owner wants the vocabulary itself redesigned independently, that is a schema change with an ADR (see Questions).
 - Error-freedom checks (`never_errors`) are implemented in the bridge but not yet exposed by the analyzer adapter (Milestone 4 lesson).
 
@@ -108,6 +114,8 @@ Open questions:
 
 6. **Publishing Linux recordings:** answered 2026-10-09: yes, under primacy rule 4, with host paths rewritten to neutral roots (ADR 0013). Shipped.
 
+7. **Shared changes made for macOS, held from `main` until approved (primacy rule 5 note).** (a) `supervisor/grants.py` now resolves the tool programs it grants (`bash`, `sh`, `curl`, and the rest) on the workload's own `PATH` (`runs.workload_path()`: the interpreter's directory, `/usr/bin`, `/bin`) instead of the supervisor's. Before, a supervisor whose `PATH` finds another copy first (Homebrew's bash, for example, when Homebrew's directory comes before `/bin`, as it often does on a Mac) would grant that copy while the workload runs `/bin/bash`, and every bash command would be refused. On the hosts tested so far the resolved paths are the same either way. (b) The shared conformance suite now requires a blocked probe's error to name what was refused (the canary, the outside path, or the protected file), so a program that fails to start cannot pass as blocked; both backends pass it. (c) The Seatbelt profile lets the workload list the names in its working directory, because `getcwd(3)` opens it (backend-only; the grant plan is unchanged). May these land on `main`?
+
 ## Decisions
 
 See `decisions/`.
@@ -125,6 +133,8 @@ See `decisions/`.
 - 0011: Published website. GitHub Pages from CI, built only from analysis produced at build time and native bundles; test-backend bundles refused.
 - 0012: Supported Linux matrix. Debian 12 (6.1, ABI 2) and Ubuntu 24.04 (6.17, ABI 7).
 - 0013: Bundle schema v2. Host paths rewritten to neutral roots; ids, hashes, and provenance unchanged.
+- 0014: macOS launcher. A Python launcher calling `sandbox_init`; self-probes and outside `sandbox_check` confirmation; teardown by a profile marker; TCP-only proxy rule with the IPv6 twin held; process information refused explicitly; the baseline confirmed one entry at a time.
+- 0015: Supported macOS matrix. macOS 15.7.9 (24G830) on Apple silicon, the `macos-15` runner.
 
 ## Session log
 
@@ -141,3 +151,4 @@ See `decisions/`.
 | 2026-10-09 | Owner decision: publish the pedagogical website to GitHub Pages. Pages enabled on the repository with GitHub Actions as the source. Publishing rules added to PLAN.md (Product shape); deployment pipeline handed to the implementer as the next item. |
 | 2026-10-09 | Milestone 1-L complete. `LandlockBackend`: bubblewrap namespaces and a filesystem view mirroring the grant plan, a Python launcher that applies Landlock and probes the confinement, a hand-built seccomp socket-family filter, the proxy through a mounted Unix socket, and PID-namespace teardown with a verified-empty check (ADR 0010). The shared conformance suite and 9 Linux-only checks pass natively on Debian 12 / 6.1 / ABI 2 and on the ubuntu-24.04 runner (6.17, ABI 7), where CI requires them (ADR 0012). Found and fixed: Landlock needs read with execute, `> /dev/null` needs truncate from ABI 3, and a new Python process needs to list its import root (shared runtime grant, ADR 0010). GitHub Pages pipeline added and the site deployed to https://johnnygreco.dev/agent-in-a-box/ with build-time analysis and native-recording placeholders (ADR 0011). |
 | 2026-10-09 | Bundle schema v2 rewrites host paths to neutral roots (ADR 0013). First native recordings shipped in `bundles/` (trailer and chapter 5, `enforcement: landlock`, Debian 12 host); the website's run panels now show them. Next: Milestone 1 (Seatbelt) on the macos-15 runner. |
+| 2026-10-09 | Milestone 1 (macOS Seatbelt) complete on branch `m1-seatbelt`. `SeatbeltBackend`: a Python launcher applying the SBPL profile with `sandbox_init`, self-probes and outside `sandbox_check` checks, teardown by a run-specific Mach-name marker with freeze-then-kill, and a doctor that confines a trial child (ADR 0014); supported matrix ADR 0015. Three runs of a temporary `explore` workflow on the runner settled the launcher choice and the kernel facts (deleted afterwards; its last run, 37992019634, was red because that job had no toolchain for the CLI doctor and three renderer tests still described the old network rule). Then the real `macos-native` job: run 37993475170 red (child Python failed at its first import because `getcwd` opens the working directory; the time zone link needs `/var`), 37994571638 red and 37995296816 red (test-side: stderr after a child's JSON result, the IPv6 twin times out rather than refusing, `/dev/fd` is listed by the forked child), 37996266559 red (log-timed baseline evidence unreliable on a busy runner, replaced by visible evidence), 37997481511 green on all jobs. `main` stayed green throughout. Also: tool grants resolve on the workload's `PATH` (question 7). |
