@@ -85,13 +85,8 @@ def recorded_run(native: list[dict], experiment: str, step: str) -> dict[str, An
         found = steps_by_name(document, experiment)
         if step in found:
             run = views.run_view(found[step])
-            versions = document["tool_manifest"]
-            return {**run, "provenance": {
-                "mode": "recorded", "enforcement": run["enforcement"],
-                "cedar_policy": versions.get("cedar_policy", "unknown"),
-                "symcc": versions.get("cedar_policy_symcc", "unknown"),
-                "solver": versions.get("cvc5", "unknown"),
-                "cedarpy": versions.get("cedarpy", "unknown")}}
+            versions = views.toolchain_versions(document)
+            return {**run, "provenance": provenance(run["enforcement"], versions)}
     return {"placeholder": PLACEHOLDER}
 
 

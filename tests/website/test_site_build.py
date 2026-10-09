@@ -115,3 +115,16 @@ def test_development_build_from_test_backend_bundles(test_backend_bundles, tmp_p
     finally:  # leave publishable data behind, never development data
         subprocess.run([*CLI, "site-data", "--published"], check=True, capture_output=True,
                        timeout=300)
+
+
+@pytest.mark.skipif(not any((WEBSITE.parent / "bundles").glob("*.json")),
+                    reason="no native recordings shipped")
+def test_shipped_native_recordings_fill_the_run_panels(tmp_path):
+    subprocess.run([*CLI, "site-data", "--published"], check=True, capture_output=True,
+                   timeout=300)
+    site = build(tmp_path / "dist")
+    zero = text(site / "chapters/0/index.html")
+    assert PLACEHOLDER not in zero
+    assert "enforcement: landlock" in zero or "enforcement: seatbelt" in zero
+    assert "enforcement: none" not in zero
+    assert "cvc5 1.3.1" in zero and "This is cvc5" not in zero

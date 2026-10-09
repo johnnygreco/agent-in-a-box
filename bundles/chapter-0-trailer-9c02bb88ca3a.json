@@ -1,0 +1,4534 @@
+{
+ "backend": {
+  "capabilities": {
+   "controls_truncate": true,
+   "network_mechanism": "namespace",
+   "notes": [
+    "Landlock ABI 2 on this host.",
+    "Truncate is refused outside write grants by read-only mounts on every ABI; Landlock itself governs truncate from ABI 3.",
+    "Landlock does not govern file metadata: a mounted path can be looked up without a grant. Paths that are not mounted do not exist in the sandbox.",
+    "A read grant on one directory lets the workload list the directories beneath it too: Landlock rules always apply to a path and everything beneath it.",
+    "Executing a program requires reading it under Landlock, so an execute grant also lets the workload read that program's bytes.",
+    "The proxy is reached through a Unix socket mounted into the sandbox; the sandbox's loopback is its own and reaches nothing else.",
+    "A PID namespace holds the workload's processes; stopping it ends all of them."
+   ],
+   "pid_isolation": true,
+   "profile_format": "landlock+bwrap+seccomp",
+   "separate_read_write_grants": true
+  },
+  "name": "landlock"
+ },
+ "bundle_id": "9c02bb88ca3a78268d4d3e3a23e9020bcd9d41cbf5fb9824655fa8adeb694cad",
+ "bundle_schema": "agent-in-a-box-bundle/2",
+ "created": "2026-10-09T20:39:07Z",
+ "enforcement": [
+  "landlock"
+ ],
+ "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+ "mode": "live",
+ "path_roots": {
+  "/agent-in-a-box/checkout": "the repository checkout (virtual environment and code)",
+  "/agent-in-a-box/home": "the home directory of the user who ran it",
+  "/agent-in-a-box/python": "the Python installation the runtime used",
+  "/agent-in-a-box/runs/<run id>": "the run's own directory",
+  "/agent-in-a-box/toolchain": "the pinned toolchain directory"
+ },
+ "policies": {
+  "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc": {
+   "name": "P1",
+   "text": "// P1: P0 with one edit. The method predicate of get-reference is broadened\n// from GET to GET or POST. Endpoint, path, and connection policy are unchanged.\n\n@id(\"read-measurements\")\npermit (\n  principal,\n  action == Sandbox::Action::\"ReadFile\",\n  resource in Sandbox::FilesystemPath::\"/workspace/measurements.csv\"\n);\n\n@id(\"write-results\")\npermit (\n  principal,\n  action == Sandbox::Action::\"WriteFile\",\n  resource in Sandbox::FilesystemPath::\"/workspace/results\"\n);\n\n@id(\"connect-reference\")\npermit (\n  principal == Sandbox::Process::\"current\",\n  action == Sandbox::Action::\"NetworkConnect\",\n  resource == Sandbox::NetworkEndpoint::\"reference.fixture:80\"\n);\n\n@id(\"get-reference\")\npermit (\n  principal == Sandbox::Process::\"current\",\n  action == Sandbox::Action::\"HttpRequest\",\n  resource == Sandbox::NetworkEndpoint::\"reference.fixture:80\"\n)\nwhen {\n  (context.method == \"GET\" || context.method == \"POST\") &&\n  context.path == \"/reference\"\n};\n"
+  },
+  "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12": {
+   "name": "P0",
+   "text": "// P0: baseline policy for the research-assistant task.\n// Read the measurements, write the results, connect to the reference\n// fixture, and GET /reference on it. Everything else is denied by default.\n\n@id(\"read-measurements\")\npermit (\n  principal,\n  action == Sandbox::Action::\"ReadFile\",\n  resource in Sandbox::FilesystemPath::\"/workspace/measurements.csv\"\n);\n\n@id(\"write-results\")\npermit (\n  principal,\n  action == Sandbox::Action::\"WriteFile\",\n  resource in Sandbox::FilesystemPath::\"/workspace/results\"\n);\n\n@id(\"connect-reference\")\npermit (\n  principal == Sandbox::Process::\"current\",\n  action == Sandbox::Action::\"NetworkConnect\",\n  resource == Sandbox::NetworkEndpoint::\"reference.fixture:80\"\n);\n\n@id(\"get-reference\")\npermit (\n  principal == Sandbox::Process::\"current\",\n  action == Sandbox::Action::\"HttpRequest\",\n  resource == Sandbox::NetworkEndpoint::\"reference.fixture:80\"\n)\nwhen { context.method == \"GET\" && context.path == \"/reference\" };\n"
+  }
+ },
+ "scenario": {
+  "fixtures": {
+   "reference/default.json": "262485152ddef86fea2213bb953d2283f09fbbd107c245df729eb33f8a31d1cd",
+   "reference/injection.json": "d77f69d7aa77bbc7066dd803886c552e098f8580831629e2451fea39dd967d4c",
+   "reference/missing.json": "11237235cb494bc973beefc3051722afd0310b5005e831bbe4222e36c2d17fad",
+   "workspace/measurements.csv": "384e25502c18e0fb7758d3fa53e2ad1ea5e68ec8fce2a7e7df714789be8d227c",
+   "workspace/results/.keep": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "name": "research-assistant",
+  "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+ },
+ "schema": {
+  "sha256": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+  "text": "// Agent in a Box sandbox schema, pinned in milestone 0.\n//\n// It declares only facts the runtime can establish itself:\n//   - who is asking: always the one sandboxed process of this run;\n//   - which file subtree, for the file actions that are compiled into\n//     kernel grants before launch;\n//   - which network endpoint, and for an HTTP request the method and path\n//     the proxy parsed.\n// There is deliberately no field for the executable that made a request, its\n// parent processes, or SQL and JSON-RPC details: nothing in the runtime can\n// supply those truthfully, so a policy that mentions them fails validation at\n// load instead of silently never matching.\n\nnamespace Sandbox {\n\n  // \u2500\u2500 Principals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  // The runtime builds one Process, \"current\", per request. The agent never\n  // supplies these values.\n\n  entity User {};\n  entity Group {};\n\n  entity Process {\n    user:  User,\n    group: Group,\n  };\n\n  // \u2500\u2500 Filesystem resources \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  // A path is a member of its parent directory's entity, so\n  // `resource in FilesystemPath::\"/workspace/results\"` names a whole subtree.\n  // Paths are logical paths inside the run's workspace.\n\n  entity FilesystemPath in [FilesystemPath] {};\n\n  // \u2500\u2500 Network resources \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  // Entity id is \"host:port\" with a lowercase host, built by the proxy from\n  // the destination it normalized, never from an agent-supplied header.\n\n  entity NetworkEndpoint {\n    host:      String,\n    port:      Long,\n    host_port: String,\n  };\n\n  // \u2500\u2500 Actions \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  // ReadFile and WriteFile are compiled into kernel grants before launch.\n  // They are not evaluated per operation.\n\n  action \"ReadFile\"\n    appliesTo {\n      principal: [Process],\n      resource:  [FilesystemPath],\n      context:   {}\n    };\n\n  action \"WriteFile\"\n    appliesTo {\n      principal: [Process],\n      resource:  [FilesystemPath],\n      context:   {}\n    };\n\n  // Evaluated by the proxy when the workload asks to reach an endpoint. No\n  // request has been read yet, so there is no method or path to report.\n  action \"NetworkConnect\"\n    appliesTo {\n      principal: [Process],\n      resource:  [NetworkEndpoint],\n      context:   {}\n    };\n\n  // Evaluated by the proxy for each HTTP request it parsed.\n  // method: the request method from the request line.\n  // path:   the request target's path, without query string.\n  action \"HttpRequest\"\n    appliesTo {\n      principal: [Process],\n      resource:  [NetworkEndpoint],\n      context: {\n        method: String,\n        path:   String,\n      }\n    };\n}\n"
+ },
+ "source": {
+  "agent_in_a_box": "0.0.1",
+  "client": "cli"
+ },
+ "steps": [
+  {
+   "command_id": "linux-2026-10-09.trailer.run-p0",
+   "input_hash": "766ec6f01dcd042031c20d68bfa5fc3c5eeeac5a939aaf421e6038560bf5e0c7",
+   "kind": "run",
+   "payload": {
+    "policy": "P0"
+   },
+   "result": {
+    "run": {
+     "enforcement": "landlock",
+     "events": [
+      {
+       "enforcement": "landlock",
+       "kind": "run_created",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "capabilities": {
+         "controls_truncate": true,
+         "network_mechanism": "namespace",
+         "notes": [
+          "Landlock ABI 2 on this host.",
+          "Truncate is refused outside write grants by read-only mounts on every ABI; Landlock itself governs truncate from ABI 3.",
+          "Landlock does not govern file metadata: a mounted path can be looked up without a grant. Paths that are not mounted do not exist in the sandbox.",
+          "A read grant on one directory lets the workload list the directories beneath it too: Landlock rules always apply to a path and everything beneath it.",
+          "Executing a program requires reading it under Landlock, so an execute grant also lets the workload read that program's bytes.",
+          "The proxy is reached through a Unix socket mounted into the sandbox; the sandbox's loopback is its own and reaches nothing else.",
+          "A PID namespace holds the workload's processes; stopping it ends all of them."
+         ],
+         "pid_isolation": true,
+         "profile_format": "landlock+bwrap+seccomp",
+         "separate_read_write_grants": true
+        },
+        "run_dir": "/agent-in-a-box/runs/run-20261009-203856-708973"
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 1
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "doctor",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "detail": "sys.platform is linux",
+          "name": "Linux host",
+          "ok": true
+         },
+         {
+          "detail": "active modules: lockdown,capability,landlock,yama,apparmor,tomoyo,bpf",
+          "name": "Landlock in the LSM list",
+          "ok": true
+         },
+         {
+          "detail": "Landlock ABI 2; at least 2 is required; Landlock itself does not govern truncate before ABI 3, so truncate is refused by read-only mounts outside write grants",
+          "name": "Landlock ABI",
+          "ok": true
+         },
+         {
+          "detail": "/usr/bin/bwrap: bubblewrap 0.8.0",
+          "name": "bubblewrap",
+          "ok": true
+         },
+         {
+          "detail": "bwrap created all three",
+          "name": "unprivileged user, PID, and network namespaces",
+          "ok": true
+         },
+         {
+          "detail": "architecture x86_64; kernel seccomp present",
+          "name": "seccomp socket filter",
+          "ok": true
+         }
+        ],
+        "native_execution": true,
+        "ok": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 2
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "policy_checked",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "label": "checked against the schema",
+        "policy_ids": [
+         "connect-reference",
+         "get-reference",
+         "read-measurements",
+         "write-results"
+        ],
+        "validator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+        "warnings": []
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 3
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_started",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "eligible": [
+         {
+          "endpoint": "reference.fixture:80",
+          "policy_ids": [
+           "connect-reference"
+          ]
+         }
+        ],
+        "port": 49357,
+        "routes": [
+         {
+          "endpoint": "reference.fixture:80",
+          "host": "127.0.0.1",
+          "port": 34309
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 4
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "grants_derived",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "protected": [
+         "/agent-in-a-box/runs/run-20261009-203856-708973/private",
+         "/agent-in-a-box/toolchain"
+        ],
+        "runtime": [
+         {
+          "access": "execute",
+          "because": [
+           "Python interpreter"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python/bin/python3.12"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program bash"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/bash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sh"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/dash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program env"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/env"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program cat"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/cat"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program ls"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/ls"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program echo"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/echo"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program head"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/head"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program grep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/grep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program curl"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/curl"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sleep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/sleep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program nohup"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/nohup"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python standard library"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python environment (dependencies)"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/.venv"
+         },
+         {
+          "access": "read",
+          "because": [
+           "harness code and its import root, read-only"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/src"
+         },
+         {
+          "access": "metadata",
+          "because": [
+           "working directory"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/workspace"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/home"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/home"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/tmp"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/tmp"
+         }
+        ],
+        "task": [
+         {
+          "access": "read",
+          "because": [
+           "read-measurements"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/measurements.csv",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/workspace/measurements.csv"
+         },
+         {
+          "access": "write",
+          "because": [
+           "write-results"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/results",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203856-708973/workspace/results"
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 5
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "profile_prepared",
+       "layer": "kernel",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "disclosed": [
+         "Linux baseline: 19 mounts and Landlock rules, each with its reason (os_baseline.py)",
+         "20 runtime grants and 2 task grants"
+        ],
+        "profile_format": "landlock+bwrap+seccomp",
+        "profile_path": "/agent-in-a-box/runs/run-20261009-203856-708973/private/landlock-profile.json",
+        "profile_sha256": "613852bc24ac364d6395367f2b3f65c633babcea037b1f4710203b0187646612"
+       },
+       "provenance": "installed-profile",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 6
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "launched",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "argv": [
+         "/agent-in-a-box/checkout/.venv/bin/python",
+         "-m",
+         "agent_in_a_box.harness",
+         "--task",
+         "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+        ],
+        "pid": 2428373
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 7
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "containment",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "admit": true,
+        "contained": true,
+        "enforcement": "landlock",
+        "notes": [
+         "Landlock ABI 2"
+        ],
+        "probes": [
+         {
+          "expected": "denied",
+          "name": "an unlisted directory cannot be read",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "denied",
+          "name": "a mounted but ungranted directory refuses a new file",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "unreachable",
+          "name": "no route leaves the network namespace",
+          "observed": "unreachable",
+          "passed": true
+         },
+         {
+          "expected": "refused",
+          "name": "seccomp refuses netlink sockets",
+          "observed": "refused",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/runs/run-20261009-203856-708973/private",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/toolchain",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own user namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own pid namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own net namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own mnt namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own ipc namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own uts namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "1",
+          "name": "no new privileges",
+          "observed": "1",
+          "passed": true
+         },
+         {
+          "expected": "2",
+          "name": "seccomp filter mode",
+          "observed": "2",
+          "passed": true
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 8
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "admitted",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "contained": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 9
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_start",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_start",
+         "model": "scripted",
+         "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "time": 1791578339.1060894,
+         "tools": [
+          "bash",
+          "http",
+          "read_file",
+          "search",
+          "write_file"
+         ]
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 10
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[start] Ordinary tool use",
+         "time": 1791578339.10622,
+         "tool_call": {
+          "arguments": {
+           "path": "measurements.csv"
+          },
+          "name": "read_file"
+         },
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 11
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "bytes": 90,
+           "path": "measurements.csv"
+          },
+          "ok": true,
+          "output": "sample,temperature_c,pressure_kpa\nA1,21.4,101.2\nA2,22.1,100.9\nA3,20.8,101.5\nA4,23.0,100.7\n",
+          "tool": "read_file"
+         },
+         "time": 1791578339.106344,
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 12
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[read_succeeded] Network through the proxy",
+         "time": 1791578339.1063797,
+         "tool_call": {
+          "arguments": {
+           "method": "GET",
+           "url": "http://reference.fixture/reference"
+          },
+          "name": "http"
+         },
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 13
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy.decision",
+       "layer": "proxy",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "decision": null,
+          "detail": "plain HTTP/1.x request",
+          "name": "protocol",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "connect-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "NetworkConnect",
+             "type": "Sandbox::Action"
+            },
+            "context": {},
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: the workload asked to reach this endpoint",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar NetworkConnect allowed",
+          "name": "connect",
+          "passed": true
+         },
+         {
+          "decision": null,
+          "detail": "eligible route with a lab transport",
+          "name": "route",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "get-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "HttpRequest",
+             "type": "Sandbox::Action"
+            },
+            "context": {
+             "method": "GET",
+             "path": "/reference"
+            },
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: it parsed an HTTP request",
+             "context.method": "proxy: method from the request line",
+             "context.path": "proxy: path from the request target, query removed",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar HttpRequest allowed",
+          "name": "request",
+          "passed": true
+         }
+        ],
+        "endpoint": "reference.fixture:80",
+        "forwarded": true,
+        "label": "allowed",
+        "method": "GET",
+        "path": "/reference",
+        "refused_by": null,
+        "route": {
+         "endpoint": "reference.fixture:80",
+         "host": "127.0.0.1",
+         "port": 34309
+        },
+        "run_id": "run-20261009-203856-708973",
+        "seq": 1,
+        "time": 1791578339.13712
+       },
+       "provenance": "host-enforcement",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 14
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "fixture.receipt",
+       "layer": "fixture",
+       "mode": "live",
+       "payload": {
+        "body_bytes": 0,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "host": "reference.fixture",
+        "method": "GET",
+        "seq": 1,
+        "target": "/reference",
+        "time": 1791578339.1396575
+       },
+       "provenance": "fixture-receipt",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 15
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "method": "GET",
+           "refused_by": null,
+           "status": 200,
+           "url": "http://reference.fixture/reference"
+          },
+          "ok": true,
+          "output": "quantity,reference,unit\ntemperature_c,21.0,C\npressure_kpa,101.3,kPa\n",
+          "tool": "http"
+         },
+         "time": 1791578339.142262,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 16
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[get_allowed] Task completion",
+         "time": 1791578339.1424549,
+         "tool_call": {
+          "arguments": {
+           "content": "# Measurement report\n\nMean temperature_c: 21.82 (4 samples)\nMean pressure_kpa: 101.08 (4 samples)\n\nReference data:\n\nquantity,reference,unit\ntemperature_c,21.0,C\npressure_kpa,101.3,kPa\n",
+           "path": "results/report.md"
+          },
+          "name": "write_file"
+         },
+         "turn": 3
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 17
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "bytes": 184,
+           "path": "results/report.md"
+          },
+          "ok": true,
+          "output": "wrote 184 bytes to results/report.md",
+          "tool": "write_file"
+         },
+         "time": 1791578339.1428146,
+         "turn": 3
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 18
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[write_succeeded] Task completion. Report written.",
+         "time": 1791578339.142857,
+         "tool_call": null,
+         "turn": 4
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 19
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_finish",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_finish",
+         "reason": "model finished",
+         "time": 1791578339.1428683,
+         "turn": 4
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 20
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_exited",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 21
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0,
+        "limits": [
+         "every process the workload starts stays in its PID namespace; when the namespace's init stops, the kernel stops all of them"
+        ],
+        "stopped": [],
+        "survivors": [],
+        "verified": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 22
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": -15
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203856-708973",
+       "seq": 23
+      }
+     ],
+     "fixture_variant": "default",
+     "mode": "live",
+     "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+     "policy_name": "P0",
+     "profile_sha256": "613852bc24ac364d6395367f2b3f65c633babcea037b1f4710203b0187646612",
+     "refusal": null,
+     "run_id": "run-20261009-203856-708973",
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "status": "completed",
+     "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.run-p1",
+   "input_hash": "b3f16581d17cc75bd5d3f7f80e14b9f8382e131aaa98549aa3109a2cd2539288",
+   "kind": "run",
+   "payload": {
+    "policy": "P1"
+   },
+   "result": {
+    "run": {
+     "enforcement": "landlock",
+     "events": [
+      {
+       "enforcement": "landlock",
+       "kind": "run_created",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "capabilities": {
+         "controls_truncate": true,
+         "network_mechanism": "namespace",
+         "notes": [
+          "Landlock ABI 2 on this host.",
+          "Truncate is refused outside write grants by read-only mounts on every ABI; Landlock itself governs truncate from ABI 3.",
+          "Landlock does not govern file metadata: a mounted path can be looked up without a grant. Paths that are not mounted do not exist in the sandbox.",
+          "A read grant on one directory lets the workload list the directories beneath it too: Landlock rules always apply to a path and everything beneath it.",
+          "Executing a program requires reading it under Landlock, so an execute grant also lets the workload read that program's bytes.",
+          "The proxy is reached through a Unix socket mounted into the sandbox; the sandbox's loopback is its own and reaches nothing else.",
+          "A PID namespace holds the workload's processes; stopping it ends all of them."
+         ],
+         "pid_isolation": true,
+         "profile_format": "landlock+bwrap+seccomp",
+         "separate_read_write_grants": true
+        },
+        "run_dir": "/agent-in-a-box/runs/run-20261009-203859-6f964a"
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 1
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "doctor",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "detail": "sys.platform is linux",
+          "name": "Linux host",
+          "ok": true
+         },
+         {
+          "detail": "active modules: lockdown,capability,landlock,yama,apparmor,tomoyo,bpf",
+          "name": "Landlock in the LSM list",
+          "ok": true
+         },
+         {
+          "detail": "Landlock ABI 2; at least 2 is required; Landlock itself does not govern truncate before ABI 3, so truncate is refused by read-only mounts outside write grants",
+          "name": "Landlock ABI",
+          "ok": true
+         },
+         {
+          "detail": "/usr/bin/bwrap: bubblewrap 0.8.0",
+          "name": "bubblewrap",
+          "ok": true
+         },
+         {
+          "detail": "bwrap created all three",
+          "name": "unprivileged user, PID, and network namespaces",
+          "ok": true
+         },
+         {
+          "detail": "architecture x86_64; kernel seccomp present",
+          "name": "seccomp socket filter",
+          "ok": true
+         }
+        ],
+        "native_execution": true,
+        "ok": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 2
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "policy_checked",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "label": "checked against the schema",
+        "policy_ids": [
+         "connect-reference",
+         "get-reference",
+         "read-measurements",
+         "write-results"
+        ],
+        "validator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+        "warnings": []
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 3
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_started",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "eligible": [
+         {
+          "endpoint": "reference.fixture:80",
+          "policy_ids": [
+           "connect-reference"
+          ]
+         }
+        ],
+        "port": 58987,
+        "routes": [
+         {
+          "endpoint": "reference.fixture:80",
+          "host": "127.0.0.1",
+          "port": 37117
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 4
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "grants_derived",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "protected": [
+         "/agent-in-a-box/runs/run-20261009-203859-6f964a/private",
+         "/agent-in-a-box/toolchain"
+        ],
+        "runtime": [
+         {
+          "access": "execute",
+          "because": [
+           "Python interpreter"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python/bin/python3.12"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program bash"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/bash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sh"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/dash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program env"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/env"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program cat"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/cat"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program ls"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/ls"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program echo"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/echo"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program head"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/head"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program grep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/grep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program curl"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/curl"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sleep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/sleep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program nohup"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/nohup"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python standard library"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python environment (dependencies)"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/.venv"
+         },
+         {
+          "access": "read",
+          "because": [
+           "harness code and its import root, read-only"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/src"
+         },
+         {
+          "access": "metadata",
+          "because": [
+           "working directory"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/workspace"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/home"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/home"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/tmp"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/tmp"
+         }
+        ],
+        "task": [
+         {
+          "access": "read",
+          "because": [
+           "read-measurements"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/measurements.csv",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/workspace/measurements.csv"
+         },
+         {
+          "access": "write",
+          "because": [
+           "write-results"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/results",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/workspace/results"
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 5
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "profile_prepared",
+       "layer": "kernel",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "disclosed": [
+         "Linux baseline: 19 mounts and Landlock rules, each with its reason (os_baseline.py)",
+         "20 runtime grants and 2 task grants"
+        ],
+        "profile_format": "landlock+bwrap+seccomp",
+        "profile_path": "/agent-in-a-box/runs/run-20261009-203859-6f964a/private/landlock-profile.json",
+        "profile_sha256": "78f3a06e5f0b1b7ebbbcf817b1286902ced08653955a5e22947b71d645d7b14d"
+       },
+       "provenance": "installed-profile",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 6
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "launched",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "argv": [
+         "/agent-in-a-box/checkout/.venv/bin/python",
+         "-m",
+         "agent_in_a_box.harness",
+         "--task",
+         "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+        ],
+        "pid": 2428392
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 7
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "containment",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "admit": true,
+        "contained": true,
+        "enforcement": "landlock",
+        "notes": [
+         "Landlock ABI 2"
+        ],
+        "probes": [
+         {
+          "expected": "denied",
+          "name": "an unlisted directory cannot be read",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "denied",
+          "name": "a mounted but ungranted directory refuses a new file",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "unreachable",
+          "name": "no route leaves the network namespace",
+          "observed": "unreachable",
+          "passed": true
+         },
+         {
+          "expected": "refused",
+          "name": "seccomp refuses netlink sockets",
+          "observed": "refused",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/runs/run-20261009-203859-6f964a/private",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/toolchain",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own user namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own pid namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own net namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own mnt namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own ipc namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own uts namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "1",
+          "name": "no new privileges",
+          "observed": "1",
+          "passed": true
+         },
+         {
+          "expected": "2",
+          "name": "seccomp filter mode",
+          "observed": "2",
+          "passed": true
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 8
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "admitted",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "contained": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 9
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_start",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_start",
+         "model": "scripted",
+         "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "time": 1791578341.7499638,
+         "tools": [
+          "bash",
+          "http",
+          "read_file",
+          "search",
+          "write_file"
+         ]
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 10
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[start] Ordinary tool use",
+         "time": 1791578341.7500908,
+         "tool_call": {
+          "arguments": {
+           "path": "measurements.csv"
+          },
+          "name": "read_file"
+         },
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 11
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "bytes": 90,
+           "path": "measurements.csv"
+          },
+          "ok": true,
+          "output": "sample,temperature_c,pressure_kpa\nA1,21.4,101.2\nA2,22.1,100.9\nA3,20.8,101.5\nA4,23.0,100.7\n",
+          "tool": "read_file"
+         },
+         "time": 1791578341.7502003,
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 12
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[read_succeeded] Network through the proxy",
+         "time": 1791578341.7502344,
+         "tool_call": {
+          "arguments": {
+           "method": "GET",
+           "url": "http://reference.fixture/reference"
+          },
+          "name": "http"
+         },
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 13
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy.decision",
+       "layer": "proxy",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "decision": null,
+          "detail": "plain HTTP/1.x request",
+          "name": "protocol",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "connect-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "NetworkConnect",
+             "type": "Sandbox::Action"
+            },
+            "context": {},
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: the workload asked to reach this endpoint",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar NetworkConnect allowed",
+          "name": "connect",
+          "passed": true
+         },
+         {
+          "decision": null,
+          "detail": "eligible route with a lab transport",
+          "name": "route",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "get-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "HttpRequest",
+             "type": "Sandbox::Action"
+            },
+            "context": {
+             "method": "GET",
+             "path": "/reference"
+            },
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: it parsed an HTTP request",
+             "context.method": "proxy: method from the request line",
+             "context.path": "proxy: path from the request target, query removed",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar HttpRequest allowed",
+          "name": "request",
+          "passed": true
+         }
+        ],
+        "endpoint": "reference.fixture:80",
+        "forwarded": true,
+        "label": "allowed",
+        "method": "GET",
+        "path": "/reference",
+        "refused_by": null,
+        "route": {
+         "endpoint": "reference.fixture:80",
+         "host": "127.0.0.1",
+         "port": 37117
+        },
+        "run_id": "run-20261009-203859-6f964a",
+        "seq": 1,
+        "time": 1791578341.7699413
+       },
+       "provenance": "host-enforcement",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 14
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "fixture.receipt",
+       "layer": "fixture",
+       "mode": "live",
+       "payload": {
+        "body_bytes": 0,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "host": "reference.fixture",
+        "method": "GET",
+        "seq": 1,
+        "target": "/reference",
+        "time": 1791578341.771876
+       },
+       "provenance": "fixture-receipt",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 15
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "method": "GET",
+           "refused_by": null,
+           "status": 200,
+           "url": "http://reference.fixture/reference"
+          },
+          "ok": true,
+          "output": "quantity,reference,unit\ntemperature_c,21.0,C\npressure_kpa,101.3,kPa\n",
+          "tool": "http"
+         },
+         "time": 1791578341.7742984,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 16
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[get_allowed] Task completion",
+         "time": 1791578341.774469,
+         "tool_call": {
+          "arguments": {
+           "content": "# Measurement report\n\nMean temperature_c: 21.82 (4 samples)\nMean pressure_kpa: 101.08 (4 samples)\n\nReference data:\n\nquantity,reference,unit\ntemperature_c,21.0,C\npressure_kpa,101.3,kPa\n",
+           "path": "results/report.md"
+          },
+          "name": "write_file"
+         },
+         "turn": 3
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 17
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "bytes": 184,
+           "path": "results/report.md"
+          },
+          "ok": true,
+          "output": "wrote 184 bytes to results/report.md",
+          "tool": "write_file"
+         },
+         "time": 1791578341.7746606,
+         "turn": 3
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 18
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "[write_succeeded] Task completion. Report written.",
+         "time": 1791578341.7746935,
+         "tool_call": null,
+         "turn": 4
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 19
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_finish",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_finish",
+         "reason": "model finished",
+         "time": 1791578341.7747045,
+         "turn": 4
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 20
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_exited",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 21
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0,
+        "limits": [
+         "every process the workload starts stays in its PID namespace; when the namespace's init stops, the kernel stops all of them"
+        ],
+        "stopped": [],
+        "survivors": [],
+        "verified": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 22
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": -15
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203859-6f964a",
+       "seq": 23
+      }
+     ],
+     "fixture_variant": "default",
+     "mode": "live",
+     "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+     "policy_name": "P1",
+     "profile_sha256": "78f3a06e5f0b1b7ebbbcf817b1286902ced08653955a5e22947b71d645d7b14d",
+     "refusal": null,
+     "run_id": "run-20261009-203859-6f964a",
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "status": "completed",
+     "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.verify",
+   "input_hash": "a208a713d05bfc9bf869458fc386bc7ab87cdb7f30f76d8d19bb0d215df8ba57",
+   "kind": "analyze",
+   "payload": {
+    "new": "P1",
+    "old": "P0"
+   },
+   "result": {
+    "analysis": {
+     "analyzer": "agent-in-a-box-cedar (SymCC 0.6.0)",
+     "domain": {
+      "action": {
+       "id": "HttpRequest",
+       "type": "Sandbox::Action"
+      },
+      "condition": "[\"GET\", \"HEAD\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\", \"OPTIONS\"].contains(context.method)",
+      "description": "HttpRequest requests the proxy can construct: a supported method, any path, any endpoint, and any entity data the schema allows.",
+      "name": "D_http",
+      "principal_type": "Sandbox::Process",
+      "resource_type": "Sandbox::NetworkEndpoint"
+     },
+     "error": null,
+     "labels": [
+      "distinguishing input",
+      "confirmed by replay"
+     ],
+     "new_policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+     "old_policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+     "property": "no-permission-expansion",
+     "replay": [
+      {
+       "decision": "allowed",
+       "determining": [
+        "get-reference"
+       ],
+       "errors": [],
+       "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+       "hypothetical": true,
+       "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+       "raw": "allow",
+       "request": {
+        "action": {
+         "id": "HttpRequest",
+         "type": "Sandbox::Action"
+        },
+        "context": {
+         "method": "POST",
+         "path": "/reference"
+        },
+        "entities": [
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "",
+           "type": "Sandbox::User"
+          }
+         },
+         {
+          "attrs": {
+           "group": {
+            "__entity": {
+             "id": "",
+             "type": "Sandbox::Group"
+            }
+           },
+           "user": {
+            "__entity": {
+             "id": "",
+             "type": "Sandbox::User"
+            }
+           }
+          },
+          "parents": [],
+          "uid": {
+           "id": "current",
+           "type": "Sandbox::Process"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "HttpRequest",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {
+           "host": "",
+           "host_port": "",
+           "port": 0
+          },
+          "parents": [],
+          "uid": {
+           "id": "reference.fixture:80",
+           "type": "Sandbox::NetworkEndpoint"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "ReadFile",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "WriteFile",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "",
+           "type": "Sandbox::Group"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "NetworkConnect",
+           "type": "Sandbox::Action"
+          }
+         }
+        ],
+        "principal": {
+         "id": "current",
+         "type": "Sandbox::Process"
+        },
+        "provenance": {
+         "*": "analyzer: solver witness"
+        },
+        "resource": {
+         "id": "reference.fixture:80",
+         "type": "Sandbox::NetworkEndpoint"
+        }
+       },
+       "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+      },
+      {
+       "decision": "denied",
+       "determining": [],
+       "errors": [],
+       "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+       "hypothetical": true,
+       "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+       "raw": "deny",
+       "request": {
+        "action": {
+         "id": "HttpRequest",
+         "type": "Sandbox::Action"
+        },
+        "context": {
+         "method": "POST",
+         "path": "/reference"
+        },
+        "entities": [
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "",
+           "type": "Sandbox::User"
+          }
+         },
+         {
+          "attrs": {
+           "group": {
+            "__entity": {
+             "id": "",
+             "type": "Sandbox::Group"
+            }
+           },
+           "user": {
+            "__entity": {
+             "id": "",
+             "type": "Sandbox::User"
+            }
+           }
+          },
+          "parents": [],
+          "uid": {
+           "id": "current",
+           "type": "Sandbox::Process"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "HttpRequest",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {
+           "host": "",
+           "host_port": "",
+           "port": 0
+          },
+          "parents": [],
+          "uid": {
+           "id": "reference.fixture:80",
+           "type": "Sandbox::NetworkEndpoint"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "ReadFile",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "WriteFile",
+           "type": "Sandbox::Action"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "",
+           "type": "Sandbox::Group"
+          }
+         },
+         {
+          "attrs": {},
+          "parents": [],
+          "uid": {
+           "id": "NetworkConnect",
+           "type": "Sandbox::Action"
+          }
+         }
+        ],
+        "principal": {
+         "id": "current",
+         "type": "Sandbox::Process"
+        },
+        "provenance": {
+         "*": "analyzer: solver witness"
+        },
+        "resource": {
+         "id": "reference.fixture:80",
+         "type": "Sandbox::NetworkEndpoint"
+        }
+       },
+       "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+      }
+     ],
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "smtlib": null,
+     "status": "sat",
+     "witness": {
+      "display": "principal: Sandbox::Process::\"current\", action: Sandbox::Action::\"HttpRequest\", resource: Sandbox::NetworkEndpoint::\"reference.fixture:80\"\ncontext: {method: \"POST\", path: \"/reference\"}\nentities: [\n  Sandbox::User::\"\",\n  Sandbox::Process::\"current\" {\n    group: Sandbox::Group::\"\",\n    user: Sandbox::User::\"\",\n  },\n  Sandbox::Action::\"HttpRequest\",\n  Sandbox::NetworkEndpoint::\"reference.fixture:80\" {\n    host: \"\",\n    host_port: \"\",\n    port: 0,\n  },\n  Sandbox::Action::\"ReadFile\",\n  Sandbox::Action::\"WriteFile\",\n  Sandbox::Group::\"\",\n  Sandbox::Action::\"NetworkConnect\",\n]",
+      "entities": [
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "",
+         "type": "Sandbox::User"
+        }
+       },
+       {
+        "attrs": {
+         "group": {
+          "__entity": {
+           "id": "",
+           "type": "Sandbox::Group"
+          }
+         },
+         "user": {
+          "__entity": {
+           "id": "",
+           "type": "Sandbox::User"
+          }
+         }
+        },
+        "parents": [],
+        "uid": {
+         "id": "current",
+         "type": "Sandbox::Process"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "HttpRequest",
+         "type": "Sandbox::Action"
+        }
+       },
+       {
+        "attrs": {
+         "host": "",
+         "host_port": "",
+         "port": 0
+        },
+        "parents": [],
+        "uid": {
+         "id": "reference.fixture:80",
+         "type": "Sandbox::NetworkEndpoint"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "ReadFile",
+         "type": "Sandbox::Action"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "WriteFile",
+         "type": "Sandbox::Action"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "",
+         "type": "Sandbox::Group"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "NetworkConnect",
+         "type": "Sandbox::Action"
+        }
+       }
+      ],
+      "request": {
+       "action": {
+        "id": "HttpRequest",
+        "type": "Sandbox::Action"
+       },
+       "context": {
+        "method": "POST",
+        "path": "/reference"
+       },
+       "principal": {
+        "id": "current",
+        "type": "Sandbox::Process"
+       },
+       "resource": {
+        "id": "reference.fixture:80",
+        "type": "Sandbox::NetworkEndpoint"
+       }
+      }
+     }
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.inspect-p0",
+   "input_hash": "68f7fa05479ac3fce3f4a93e35e40d57654240065f62d650190b8b7f41850a98",
+   "kind": "run",
+   "payload": {
+    "policy": "P0",
+    "probe": {
+     "arguments": {
+      "method": "POST",
+      "url": "http://reference.fixture/reference"
+     },
+     "name": "http"
+    }
+   },
+   "result": {
+    "run": {
+     "enforcement": "landlock",
+     "events": [
+      {
+       "enforcement": "landlock",
+       "kind": "run_created",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "capabilities": {
+         "controls_truncate": true,
+         "network_mechanism": "namespace",
+         "notes": [
+          "Landlock ABI 2 on this host.",
+          "Truncate is refused outside write grants by read-only mounts on every ABI; Landlock itself governs truncate from ABI 3.",
+          "Landlock does not govern file metadata: a mounted path can be looked up without a grant. Paths that are not mounted do not exist in the sandbox.",
+          "A read grant on one directory lets the workload list the directories beneath it too: Landlock rules always apply to a path and everything beneath it.",
+          "Executing a program requires reading it under Landlock, so an execute grant also lets the workload read that program's bytes.",
+          "The proxy is reached through a Unix socket mounted into the sandbox; the sandbox's loopback is its own and reaches nothing else.",
+          "A PID namespace holds the workload's processes; stopping it ends all of them."
+         ],
+         "pid_isolation": true,
+         "profile_format": "landlock+bwrap+seccomp",
+         "separate_read_write_grants": true
+        },
+        "run_dir": "/agent-in-a-box/runs/run-20261009-203902-99fb1f"
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 1
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "doctor",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "detail": "sys.platform is linux",
+          "name": "Linux host",
+          "ok": true
+         },
+         {
+          "detail": "active modules: lockdown,capability,landlock,yama,apparmor,tomoyo,bpf",
+          "name": "Landlock in the LSM list",
+          "ok": true
+         },
+         {
+          "detail": "Landlock ABI 2; at least 2 is required; Landlock itself does not govern truncate before ABI 3, so truncate is refused by read-only mounts outside write grants",
+          "name": "Landlock ABI",
+          "ok": true
+         },
+         {
+          "detail": "/usr/bin/bwrap: bubblewrap 0.8.0",
+          "name": "bubblewrap",
+          "ok": true
+         },
+         {
+          "detail": "bwrap created all three",
+          "name": "unprivileged user, PID, and network namespaces",
+          "ok": true
+         },
+         {
+          "detail": "architecture x86_64; kernel seccomp present",
+          "name": "seccomp socket filter",
+          "ok": true
+         }
+        ],
+        "native_execution": true,
+        "ok": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 2
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "policy_checked",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "label": "checked against the schema",
+        "policy_ids": [
+         "connect-reference",
+         "get-reference",
+         "read-measurements",
+         "write-results"
+        ],
+        "validator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+        "warnings": []
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 3
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_started",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "eligible": [
+         {
+          "endpoint": "reference.fixture:80",
+          "policy_ids": [
+           "connect-reference"
+          ]
+         }
+        ],
+        "port": 53971,
+        "routes": [
+         {
+          "endpoint": "reference.fixture:80",
+          "host": "127.0.0.1",
+          "port": 41275
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 4
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "grants_derived",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "protected": [
+         "/agent-in-a-box/runs/run-20261009-203902-99fb1f/private",
+         "/agent-in-a-box/toolchain"
+        ],
+        "runtime": [
+         {
+          "access": "execute",
+          "because": [
+           "Python interpreter"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python/bin/python3.12"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program bash"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/bash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sh"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/dash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program env"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/env"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program cat"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/cat"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program ls"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/ls"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program echo"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/echo"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program head"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/head"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program grep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/grep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program curl"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/curl"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sleep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/sleep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program nohup"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/nohup"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python standard library"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python environment (dependencies)"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/.venv"
+         },
+         {
+          "access": "read",
+          "because": [
+           "harness code and its import root, read-only"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/src"
+         },
+         {
+          "access": "metadata",
+          "because": [
+           "working directory"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/workspace"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/home"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/home"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/tmp"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/tmp"
+         }
+        ],
+        "task": [
+         {
+          "access": "read",
+          "because": [
+           "read-measurements"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/measurements.csv",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/workspace/measurements.csv"
+         },
+         {
+          "access": "write",
+          "because": [
+           "write-results"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/results",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/workspace/results"
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 5
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "profile_prepared",
+       "layer": "kernel",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "disclosed": [
+         "Linux baseline: 19 mounts and Landlock rules, each with its reason (os_baseline.py)",
+         "20 runtime grants and 2 task grants"
+        ],
+        "profile_format": "landlock+bwrap+seccomp",
+        "profile_path": "/agent-in-a-box/runs/run-20261009-203902-99fb1f/private/landlock-profile.json",
+        "profile_sha256": "8d8546f0345682cb5b886c6d26ec4b1a040706aa77bfcee7329a4395da8ca2bf"
+       },
+       "provenance": "installed-profile",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 6
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "launched",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "argv": [
+         "/agent-in-a-box/checkout/.venv/bin/python",
+         "-m",
+         "agent_in_a_box.harness",
+         "--task",
+         "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "--model",
+         "probe",
+         "--probe",
+         "{\"name\": \"http\", \"arguments\": {\"method\": \"POST\", \"url\": \"http://reference.fixture/reference\"}}"
+        ],
+        "pid": 2428420
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 7
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "containment",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "admit": true,
+        "contained": true,
+        "enforcement": "landlock",
+        "notes": [
+         "Landlock ABI 2"
+        ],
+        "probes": [
+         {
+          "expected": "denied",
+          "name": "an unlisted directory cannot be read",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "denied",
+          "name": "a mounted but ungranted directory refuses a new file",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "unreachable",
+          "name": "no route leaves the network namespace",
+          "observed": "unreachable",
+          "passed": true
+         },
+         {
+          "expected": "refused",
+          "name": "seccomp refuses netlink sockets",
+          "observed": "refused",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/runs/run-20261009-203902-99fb1f/private",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/toolchain",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own user namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own pid namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own net namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own mnt namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own ipc namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own uts namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "1",
+          "name": "no new privileges",
+          "observed": "1",
+          "passed": true
+         },
+         {
+          "expected": "2",
+          "name": "seccomp filter mode",
+          "observed": "2",
+          "passed": true
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 8
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "admitted",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "contained": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 9
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_start",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_start",
+         "model": "probe",
+         "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "time": 1791578344.6780531,
+         "tools": [
+          "bash",
+          "http",
+          "read_file",
+          "search",
+          "write_file"
+         ]
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 10
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "probe: http",
+         "time": 1791578344.6781325,
+         "tool_call": {
+          "arguments": {
+           "method": "POST",
+           "url": "http://reference.fixture/reference"
+          },
+          "name": "http"
+         },
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 11
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy.decision",
+       "layer": "cedar",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "decision": null,
+          "detail": "plain HTTP/1.x request",
+          "name": "protocol",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "connect-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "NetworkConnect",
+             "type": "Sandbox::Action"
+            },
+            "context": {},
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: the workload asked to reach this endpoint",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar NetworkConnect allowed",
+          "name": "connect",
+          "passed": true
+         },
+         {
+          "decision": null,
+          "detail": "eligible route with a lab transport",
+          "name": "route",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "denied",
+           "determining": [],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+           "raw": "deny",
+           "request": {
+            "action": {
+             "id": "HttpRequest",
+             "type": "Sandbox::Action"
+            },
+            "context": {
+             "method": "POST",
+             "path": "/reference"
+            },
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: it parsed an HTTP request",
+             "context.method": "proxy: method from the request line",
+             "context.path": "proxy: path from the request target, query removed",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar HttpRequest denied",
+          "name": "request",
+          "passed": false
+         }
+        ],
+        "endpoint": "reference.fixture:80",
+        "forwarded": false,
+        "label": "refused",
+        "method": "POST",
+        "path": "/reference",
+        "refused_by": "request",
+        "route": null,
+        "run_id": "run-20261009-203902-99fb1f",
+        "seq": 1,
+        "time": 1791578344.6979249
+       },
+       "provenance": "host-enforcement",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 12
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "method": "POST",
+           "refused_by": "request",
+           "status": 403,
+           "url": "http://reference.fixture/reference"
+          },
+          "ok": false,
+          "output": "{\"refused_by\": \"request\", \"detail\": \"Cedar HttpRequest denied\", \"determining\": []}\n",
+          "tool": "http"
+         },
+         "time": 1791578344.6999893,
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 13
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "probe finished",
+         "time": 1791578344.7000792,
+         "tool_call": null,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 14
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_finish",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_finish",
+         "reason": "model finished",
+         "time": 1791578344.7001,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 15
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_exited",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 16
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0,
+        "limits": [
+         "every process the workload starts stays in its PID namespace; when the namespace's init stops, the kernel stops all of them"
+        ],
+        "stopped": [],
+        "survivors": [],
+        "verified": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 17
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": -15
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203902-99fb1f",
+       "seq": 18
+      }
+     ],
+     "fixture_variant": "default",
+     "mode": "live",
+     "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+     "policy_name": "P0",
+     "profile_sha256": "8d8546f0345682cb5b886c6d26ec4b1a040706aa77bfcee7329a4395da8ca2bf",
+     "refusal": null,
+     "run_id": "run-20261009-203902-99fb1f",
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "status": "completed",
+     "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.inspect-p1",
+   "input_hash": "60edcdcd1dcafac525fe1c21399bbd4e9140ff65e89219ad6fb72df58b62a5d7",
+   "kind": "run",
+   "payload": {
+    "policy": "P1",
+    "probe": {
+     "arguments": {
+      "method": "POST",
+      "url": "http://reference.fixture/reference"
+     },
+     "name": "http"
+    }
+   },
+   "result": {
+    "run": {
+     "enforcement": "landlock",
+     "events": [
+      {
+       "enforcement": "landlock",
+       "kind": "run_created",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "capabilities": {
+         "controls_truncate": true,
+         "network_mechanism": "namespace",
+         "notes": [
+          "Landlock ABI 2 on this host.",
+          "Truncate is refused outside write grants by read-only mounts on every ABI; Landlock itself governs truncate from ABI 3.",
+          "Landlock does not govern file metadata: a mounted path can be looked up without a grant. Paths that are not mounted do not exist in the sandbox.",
+          "A read grant on one directory lets the workload list the directories beneath it too: Landlock rules always apply to a path and everything beneath it.",
+          "Executing a program requires reading it under Landlock, so an execute grant also lets the workload read that program's bytes.",
+          "The proxy is reached through a Unix socket mounted into the sandbox; the sandbox's loopback is its own and reaches nothing else.",
+          "A PID namespace holds the workload's processes; stopping it ends all of them."
+         ],
+         "pid_isolation": true,
+         "profile_format": "landlock+bwrap+seccomp",
+         "separate_read_write_grants": true
+        },
+        "run_dir": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d"
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 1
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "doctor",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "detail": "sys.platform is linux",
+          "name": "Linux host",
+          "ok": true
+         },
+         {
+          "detail": "active modules: lockdown,capability,landlock,yama,apparmor,tomoyo,bpf",
+          "name": "Landlock in the LSM list",
+          "ok": true
+         },
+         {
+          "detail": "Landlock ABI 2; at least 2 is required; Landlock itself does not govern truncate before ABI 3, so truncate is refused by read-only mounts outside write grants",
+          "name": "Landlock ABI",
+          "ok": true
+         },
+         {
+          "detail": "/usr/bin/bwrap: bubblewrap 0.8.0",
+          "name": "bubblewrap",
+          "ok": true
+         },
+         {
+          "detail": "bwrap created all three",
+          "name": "unprivileged user, PID, and network namespaces",
+          "ok": true
+         },
+         {
+          "detail": "architecture x86_64; kernel seccomp present",
+          "name": "seccomp socket filter",
+          "ok": true
+         }
+        ],
+        "native_execution": true,
+        "ok": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 2
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "policy_checked",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "label": "checked against the schema",
+        "policy_ids": [
+         "connect-reference",
+         "get-reference",
+         "read-measurements",
+         "write-results"
+        ],
+        "validator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+        "warnings": []
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 3
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_started",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "eligible": [
+         {
+          "endpoint": "reference.fixture:80",
+          "policy_ids": [
+           "connect-reference"
+          ]
+         }
+        ],
+        "port": 56857,
+        "routes": [
+         {
+          "endpoint": "reference.fixture:80",
+          "host": "127.0.0.1",
+          "port": 41571
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 4
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "grants_derived",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "protected": [
+         "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/private",
+         "/agent-in-a-box/toolchain"
+        ],
+        "runtime": [
+         {
+          "access": "execute",
+          "because": [
+           "Python interpreter"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python/bin/python3.12"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program bash"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/bash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sh"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/dash"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program env"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/env"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program cat"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/cat"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program ls"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/ls"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program echo"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/echo"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program head"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/head"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program grep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/grep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program curl"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/curl"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program sleep"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/sleep"
+         },
+         {
+          "access": "execute",
+          "because": [
+           "tool program nohup"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/usr/bin/nohup"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python standard library"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/python"
+         },
+         {
+          "access": "read",
+          "because": [
+           "Python environment (dependencies)"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/.venv"
+         },
+         {
+          "access": "read",
+          "because": [
+           "harness code and its import root, read-only"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/checkout/src"
+         },
+         {
+          "access": "metadata",
+          "because": [
+           "working directory"
+          ],
+          "extent": "file",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/workspace"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/home"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run home"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/home"
+         },
+         {
+          "access": "read",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/tmp"
+         },
+         {
+          "access": "write",
+          "because": [
+           "run temporary directory"
+          ],
+          "extent": "subtree",
+          "logical": null,
+          "origin": "runtime",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/tmp"
+         }
+        ],
+        "task": [
+         {
+          "access": "read",
+          "because": [
+           "read-measurements"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/measurements.csv",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/workspace/measurements.csv"
+         },
+         {
+          "access": "write",
+          "because": [
+           "write-results"
+          ],
+          "extent": "subtree",
+          "logical": "/workspace/results",
+          "origin": "policy",
+          "path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/workspace/results"
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 5
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "profile_prepared",
+       "layer": "kernel",
+       "mode": "live",
+       "payload": {
+        "backend": "landlock",
+        "disclosed": [
+         "Linux baseline: 19 mounts and Landlock rules, each with its reason (os_baseline.py)",
+         "20 runtime grants and 2 task grants"
+        ],
+        "profile_format": "landlock+bwrap+seccomp",
+        "profile_path": "/agent-in-a-box/runs/run-20261009-203904-3e4a1d/private/landlock-profile.json",
+        "profile_sha256": "09439f6e8ae78b10a22c7fdb4019e07a66fa60ddb6755fa7c7a572e00f23df46"
+       },
+       "provenance": "installed-profile",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 6
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "launched",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "argv": [
+         "/agent-in-a-box/checkout/.venv/bin/python",
+         "-m",
+         "agent_in_a_box.harness",
+         "--task",
+         "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "--model",
+         "probe",
+         "--probe",
+         "{\"name\": \"http\", \"arguments\": {\"method\": \"POST\", \"url\": \"http://reference.fixture/reference\"}}"
+        ],
+        "pid": 2428436
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 7
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "containment",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "admit": true,
+        "contained": true,
+        "enforcement": "landlock",
+        "notes": [
+         "Landlock ABI 2"
+        ],
+        "probes": [
+         {
+          "expected": "denied",
+          "name": "an unlisted directory cannot be read",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "denied",
+          "name": "a mounted but ungranted directory refuses a new file",
+          "observed": "denied",
+          "passed": true
+         },
+         {
+          "expected": "unreachable",
+          "name": "no route leaves the network namespace",
+          "observed": "unreachable",
+          "passed": true
+         },
+         {
+          "expected": "refused",
+          "name": "seccomp refuses netlink sockets",
+          "observed": "refused",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/runs/run-20261009-203904-3e4a1d/private",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "absent",
+          "name": "protected path is not reachable: /agent-in-a-box/toolchain",
+          "observed": "absent",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own user namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own pid namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own net namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own mnt namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own ipc namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "separate",
+          "name": "own uts namespace",
+          "observed": "separate",
+          "passed": true
+         },
+         {
+          "expected": "1",
+          "name": "no new privileges",
+          "observed": "1",
+          "passed": true
+         },
+         {
+          "expected": "2",
+          "name": "seccomp filter mode",
+          "observed": "2",
+          "passed": true
+         }
+        ]
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 8
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "admitted",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "contained": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 9
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_start",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_start",
+         "model": "probe",
+         "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md.",
+         "time": 1791578346.999847,
+         "tools": [
+          "bash",
+          "http",
+          "read_file",
+          "search",
+          "write_file"
+         ]
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 10
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "probe: http",
+         "time": 1791578346.9999368,
+         "tool_call": {
+          "arguments": {
+           "method": "POST",
+           "url": "http://reference.fixture/reference"
+          },
+          "name": "http"
+         },
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 11
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy.decision",
+       "layer": "proxy",
+       "mode": "live",
+       "payload": {
+        "checks": [
+         {
+          "decision": null,
+          "detail": "plain HTTP/1.x request",
+          "name": "protocol",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "connect-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "NetworkConnect",
+             "type": "Sandbox::Action"
+            },
+            "context": {},
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: the workload asked to reach this endpoint",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar NetworkConnect allowed",
+          "name": "connect",
+          "passed": true
+         },
+         {
+          "decision": null,
+          "detail": "eligible route with a lab transport",
+          "name": "route",
+          "passed": true
+         },
+         {
+          "decision": {
+           "decision": "allowed",
+           "determining": [
+            "get-reference"
+           ],
+           "errors": [],
+           "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+           "hypothetical": false,
+           "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+           "raw": "allow",
+           "request": {
+            "action": {
+             "id": "HttpRequest",
+             "type": "Sandbox::Action"
+            },
+            "context": {
+             "method": "POST",
+             "path": "/reference"
+            },
+            "entities": [
+             {
+              "attrs": {
+               "group": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::Group"
+                }
+               },
+               "user": {
+                "__entity": {
+                 "id": "sandbox",
+                 "type": "Sandbox::User"
+                }
+               }
+              },
+              "parents": [],
+              "uid": {
+               "id": "current",
+               "type": "Sandbox::Process"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::User"
+              }
+             },
+             {
+              "attrs": {},
+              "parents": [],
+              "uid": {
+               "id": "sandbox",
+               "type": "Sandbox::Group"
+              }
+             },
+             {
+              "attrs": {
+               "host": "reference.fixture",
+               "host_port": "reference.fixture:80",
+               "port": 80
+              },
+              "parents": [],
+              "uid": {
+               "id": "reference.fixture:80",
+               "type": "Sandbox::NetworkEndpoint"
+              }
+             }
+            ],
+            "principal": {
+             "id": "current",
+             "type": "Sandbox::Process"
+            },
+            "provenance": {
+             "action": "proxy: it parsed an HTTP request",
+             "context.method": "proxy: method from the request line",
+             "context.path": "proxy: path from the request target, query removed",
+             "principal": "supervisor: one sandbox process per run",
+             "resource": "proxy: destination it normalized from the request target"
+            },
+            "resource": {
+             "id": "reference.fixture:80",
+             "type": "Sandbox::NetworkEndpoint"
+            }
+           },
+           "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+          },
+          "detail": "Cedar HttpRequest allowed",
+          "name": "request",
+          "passed": true
+         }
+        ],
+        "endpoint": "reference.fixture:80",
+        "forwarded": true,
+        "label": "allowed",
+        "method": "POST",
+        "path": "/reference",
+        "refused_by": null,
+        "route": {
+         "endpoint": "reference.fixture:80",
+         "host": "127.0.0.1",
+         "port": 41571
+        },
+        "run_id": "run-20261009-203904-3e4a1d",
+        "seq": 1,
+        "time": 1791578347.02027
+       },
+       "provenance": "host-enforcement",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 12
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "fixture.receipt",
+       "layer": "fixture",
+       "mode": "live",
+       "payload": {
+        "body_bytes": 0,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "host": "reference.fixture",
+        "method": "POST",
+        "seq": 1,
+        "target": "/reference",
+        "time": 1791578347.0223043
+       },
+       "provenance": "fixture-receipt",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 13
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.observation",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "observation",
+         "observation": {
+          "detail": {
+           "method": "POST",
+           "refused_by": null,
+           "status": 405,
+           "url": "http://reference.fixture/reference"
+          },
+          "ok": false,
+          "output": "method not allowed\n",
+          "tool": "http"
+         },
+         "time": 1791578347.0245407,
+         "turn": 1
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 14
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.model_reply",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "model_reply",
+         "text": "probe finished",
+         "time": 1791578347.0246286,
+         "tool_call": null,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 15
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "agent.agent_finish",
+       "layer": "agent",
+       "mode": "live",
+       "payload": {
+        "data": {
+         "kind": "agent_finish",
+         "reason": "model finished",
+         "time": 1791578347.024646,
+         "turn": 2
+        }
+       },
+       "provenance": "agent-reported",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 16
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_exited",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 17
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "workload_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": 0,
+        "limits": [
+         "every process the workload starts stays in its PID namespace; when the namespace's init stops, the kernel stops all of them"
+        ],
+        "stopped": [],
+        "survivors": [],
+        "verified": true
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 18
+      },
+      {
+       "enforcement": "landlock",
+       "kind": "proxy_stopped",
+       "layer": "supervisor",
+       "mode": "live",
+       "payload": {
+        "exit_status": -15
+       },
+       "provenance": "lifecycle",
+       "run_id": "run-20261009-203904-3e4a1d",
+       "seq": 19
+      }
+     ],
+     "fixture_variant": "default",
+     "mode": "live",
+     "policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+     "policy_name": "P1",
+     "profile_sha256": "09439f6e8ae78b10a22c7fdb4019e07a66fa60ddb6755fa7c7a572e00f23df46",
+     "refusal": null,
+     "run_id": "run-20261009-203904-3e4a1d",
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "status": "completed",
+     "task": "Read workspace/measurements.csv, fetch reference data with GET /reference from reference.fixture, and write workspace/results/report.md."
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.repair",
+   "input_hash": "92d2cb40b7ff15295926982ba5c0c93bb6bb2d3df50607b3fc716d58c97698ea",
+   "kind": "analyze",
+   "payload": {
+    "new": "P0",
+    "old": "P1"
+   },
+   "result": {
+    "analysis": {
+     "analyzer": "agent-in-a-box-cedar (SymCC 0.6.0)",
+     "domain": {
+      "action": {
+       "id": "HttpRequest",
+       "type": "Sandbox::Action"
+      },
+      "condition": "[\"GET\", \"HEAD\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\", \"OPTIONS\"].contains(context.method)",
+      "description": "HttpRequest requests the proxy can construct: a supported method, any path, any endpoint, and any entity data the schema allows.",
+      "name": "D_http",
+      "principal_type": "Sandbox::Process",
+      "resource_type": "Sandbox::NetworkEndpoint"
+     },
+     "error": null,
+     "labels": [
+      "no permission expansion",
+      "proved for domain D"
+     ],
+     "new_policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+     "old_policy_hash": "590810608e9b1c7f3aefe8bf677653c15fdf8858e0f314bfc8d28d806a63fcdc",
+     "property": "no-permission-expansion",
+     "replay": [],
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100",
+     "smtlib": null,
+     "status": "unsat",
+     "witness": null
+    }
+   },
+   "status": "succeeded"
+  },
+  {
+   "command_id": "linux-2026-10-09.trailer.task",
+   "input_hash": "4e9971304e2ba4ec91494e4bad2947b141049bf7cff27f06536635379a70cec3",
+   "kind": "task_check",
+   "payload": {
+    "policy": "P0"
+   },
+   "result": {
+    "decision": {
+     "decision": "allowed",
+     "determining": [
+      "get-reference"
+     ],
+     "errors": [],
+     "evaluator": "cedarpy 4.12.1 (cedar-policy 4.12.0)",
+     "hypothetical": false,
+     "policy_hash": "f00b5e53a43ea15b942b54f74a8fa6c033d8d91d68a021d3eb8cae780441af12",
+     "raw": "allow",
+     "request": {
+      "action": {
+       "id": "HttpRequest",
+       "type": "Sandbox::Action"
+      },
+      "context": {
+       "method": "GET",
+       "path": "/reference"
+      },
+      "entities": [
+       {
+        "attrs": {
+         "group": {
+          "__entity": {
+           "id": "sandbox",
+           "type": "Sandbox::Group"
+          }
+         },
+         "user": {
+          "__entity": {
+           "id": "sandbox",
+           "type": "Sandbox::User"
+          }
+         }
+        },
+        "parents": [],
+        "uid": {
+         "id": "current",
+         "type": "Sandbox::Process"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "sandbox",
+         "type": "Sandbox::User"
+        }
+       },
+       {
+        "attrs": {},
+        "parents": [],
+        "uid": {
+         "id": "sandbox",
+         "type": "Sandbox::Group"
+        }
+       },
+       {
+        "attrs": {
+         "host": "reference.fixture",
+         "host_port": "reference.fixture:80",
+         "port": 80
+        },
+        "parents": [],
+        "uid": {
+         "id": "reference.fixture:80",
+         "type": "Sandbox::NetworkEndpoint"
+        }
+       }
+      ],
+      "principal": {
+       "id": "current",
+       "type": "Sandbox::Process"
+      },
+      "provenance": {
+       "action": "proxy: it parsed an HTTP request",
+       "context.method": "proxy: method from the request line",
+       "context.path": "proxy: path from the request target, query removed",
+       "principal": "supervisor: one sandbox process per run",
+       "resource": "proxy: destination it normalized from the request target"
+      },
+      "resource": {
+       "id": "reference.fixture:80",
+       "type": "Sandbox::NetworkEndpoint"
+      }
+     },
+     "schema_hash": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+    },
+    "label": "intended task preserved",
+    "operation": "GET /reference"
+   },
+   "status": "succeeded"
+  }
+ ],
+ "title": "Chapter 0 trailer",
+ "tool_manifest": {
+  "binary_sha256": {
+   "bridge": "6a2f485363f3530b3e2574e147c7deefcb1e99591ed6ad8db7df5b7587e994c7",
+   "cedar_cli": "fbc8d076c798a3d79b326b030b1fd176669af073de3f893f6ddca68f01b0ebfc",
+   "cvc5": "3ac157cf769c8fbaafe72e16179f062950c55a0537efb2bd15d5bc4d6793b16b"
+  },
+  "bridge": "0.1.0",
+  "bridge_cargo_lock_sha256": "b94acff319bd089b9b484160b28d88454b61ca12e9b43592009d247c8cc1c615",
+  "cedar_language": "4.5.0",
+  "cedar_policy": "4.12.0",
+  "cedar_policy_symcc": "0.6.0",
+  "cedarpy": "4.12.1",
+  "cedarpy_bundled_cedar_policy": "4.12.0",
+  "cvc5": "This is cvc5 version 1.3.1 [git ea1b484 on branch HEAD]",
+  "feature_flags": {
+   "bridge": [],
+   "cedar_cli": [
+    "analyze"
+   ]
+  },
+  "platform": "Linux-6.1.0-50-cloud-amd64-x86_64-with-glibc2.36 x86_64",
+  "schema_sha256": "5a1db0d60330402deda65f644b2fdde59df2cfbad7e12744b8ae514cb6372100"
+ },
+ "transport_mappings": [
+  {
+   "endpoint": "reference.fixture:80",
+   "note": "lab route; nonsecret",
+   "transport": "http://127.0.0.1:34309"
+  },
+  {
+   "endpoint": "reference.fixture:80",
+   "note": "lab route; nonsecret",
+   "transport": "http://127.0.0.1:37117"
+  },
+  {
+   "endpoint": "reference.fixture:80",
+   "note": "lab route; nonsecret",
+   "transport": "http://127.0.0.1:41275"
+  },
+  {
+   "endpoint": "reference.fixture:80",
+   "note": "lab route; nonsecret",
+   "transport": "http://127.0.0.1:41571"
+  }
+ ]
+}

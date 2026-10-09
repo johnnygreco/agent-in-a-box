@@ -1,10 +1,15 @@
-"""Experiment bundles, schema v1: export, import, and replay without effects.
+"""Experiment bundles, schema v2: export, import, and replay without effects.
 
 A bundle is one JSON document holding everything needed to inspect and
 re-check an experiment: scenario and fixture hashes, the schema and every
 policy text by hash, the tool and backend manifests, the nonsecret transport
 mappings, and each command's input and stored result (run records, decision
 records, raw solver witnesses and their replays).
+
+Host paths are rewritten to neutral roots before a bundle is written
+(neutral_paths.py; decisions/0013), so a bundle names no home directory, user
+name, checkout, or toolchain location. Schema v1 bundles, which kept host
+paths, can still be read.
 
 Its id is the hash of its canonical content, so an edited bundle is detected
 on import. Importing runs nothing; imported evidence is shown as recorded.
@@ -27,10 +32,11 @@ from agent_in_a_box.composition import Runtime
 from agent_in_a_box.contracts import (
     CedarEvaluator, CommandResult, PolicyBundle, canonical_hash, plain, sha256_text,
 )
-from agent_in_a_box.experiments import records, scenario
+from agent_in_a_box.experiments import neutral_paths, records, scenario
 from agent_in_a_box.policy import schema, toolchain
 
-SCHEMA = "agent-in-a-box-bundle/1"
+SCHEMA = "agent-in-a-box-bundle/2"
+READABLE_SCHEMAS = ("agent-in-a-box-bundle/1", SCHEMA)
 POLICY_FIELDS = ("policy", "old", "new")
 
 
@@ -91,7 +97,15 @@ def build(steps: Sequence[CommandResult], runtime: Runtime, title: str, client: 
                     "capabilities": plain(backend.capabilities()) if backend else None},
         "transport_mappings": _transports(steps),
         "steps": [plain(step) for step in steps],
+        "path_roots": neutral_paths.ROOTS,
     }
+    run_dirs = {}
+    for run in _runs(steps):
+        for event in run["events"]:
+            if event["kind"] == "run_created":
+                run_dirs[run["run_id"]] = event["payload"]["run_dir"]
+    roots = neutral_paths.host_roots(run_dirs, schema.REPO_ROOT, toolchain.toolchain_dir())
+    document = neutral_paths.rewrite(document, roots)
     document["bundle_id"] = canonical_hash(document)
     return document
 
@@ -107,7 +121,7 @@ def write(document: dict, directory: Path) -> Path:
 def load(path: Path, *, as_native: bool = False) -> dict:
     """Read and verify a bundle. The result is marked to be shown as recorded."""
     document = json.loads(Path(path).read_text())
-    if document.get("bundle_schema") != SCHEMA:
+    if document.get("bundle_schema") not in READABLE_SCHEMAS:
         raise BundleError(f"unsupported bundle schema {document.get('bundle_schema')!r}")
     claimed = document.pop("bundle_id", None)
     if claimed != canonical_hash(document):

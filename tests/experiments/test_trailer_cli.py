@@ -5,6 +5,7 @@ replays without effects."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -102,3 +103,35 @@ def test_bundle_cli_show_and_replay(trailer):
     assert replayed.returncode == 0 and '"effects": "none"' in replayed.stdout
 
 
+
+
+def test_exported_bundle_names_no_host_paths_or_user(trailer):
+    """decisions/0013: no home directory, user name, checkout, toolchain, or state directory."""
+    import getpass
+    import re
+
+    from agent_in_a_box.policy import schema, toolchain
+
+    state, _ = trailer
+    path = next((state / "bundles").glob("chapter-0-trailer-*.json"))
+    text = path.read_text()
+    for host in (Path.home(), schema.REPO_ROOT, toolchain.toolchain_dir(), state):
+        assert str(host) not in text, host
+        assert os.path.realpath(host) not in text, host
+    assert re.search(rf"\b{re.escape(getpass.getuser())}\b", text) is None
+
+
+def test_run_ids_and_hashes_survive_the_rewrite(trailer):
+    state, _ = trailer
+    path = next((state / "bundles").glob("chapter-0-trailer-*.json"))
+    document = bundles.load(path)
+    recorded_runs = {run.name for run in (state / "runs").iterdir()}
+    for step in document["steps"]:
+        if step["kind"] != "run":
+            continue
+        run = step["result"]["run"]
+        assert run["run_id"] in recorded_runs
+        created = next(e for e in run["events"] if e["kind"] == "run_created")
+        assert created["payload"]["run_dir"] == f"/agent-in-a-box/runs/{run['run_id']}"
+        assert len(run["policy_hash"]) == 64
+    assert bundles.replay(document, CedarpyEvaluator())["mismatched"] == []

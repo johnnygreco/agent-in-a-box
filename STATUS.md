@@ -85,7 +85,6 @@ Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.m
 
 ## Follow-ups (implementing agent)
 
-- Native recordings for the website: the trailer and chapter 5 can now be recorded under `enforcement: landlock` and shipped in `bundles/` (primacy rule 4 allows Linux recordings until macOS ones exist). Waiting on question 6.
 - arm64 Linux is untested natively; the seccomp program's arm64 variant is checked only by unit tests (ADR 0012).
 - Redirect handling and its tests are scheduled with Milestone 3's bypass tests (ADR 0004).
 - The `SeatbeltBackend` OS baseline (`os_baseline.py`) was rewritten from first principles, one reasoned rule per entry (ADR 0008). It must be confirmed on a Mac in Milestone 1, and `sysctl-read` narrowed to named parameters there.
@@ -107,7 +106,7 @@ Open questions:
 
 5. **Schema vocabulary.** `policies/sandbox.cedarschema` keeps the entity and action names chosen in the first session (`Sandbox::Process`, `FilesystemPath`, `NetworkEndpoint` with `host`, `port`, `host_port`; actions `ReadFile`, `WriteFile`, `NetworkConnect`, `HttpRequest`). No source is named anywhere, and the comments are rewritten. Is the vocabulary itself acceptable to keep, or should it be redesigned? Redesign touches every policy, lesson snippet, and oracle case.
 
-6. **Publishing Linux recordings.** Native bundles carry absolute host paths (the run directory under the checkout, for example `/home/<user>/agent-in-a-box/.agent-in-a-box/runs/...`), the toolchain manifest, and the host's platform string. Should I record the trailer and chapter 5 under `enforcement: landlock` and ship them in `bundles/`, so the site's run panels fill in? If yes, should paths in shipped bundles be rewritten to a neutral run root before export? That would be a bundle-format change with an ADR.
+6. **Publishing Linux recordings:** answered 2026-10-09: yes, under primacy rule 4, with host paths rewritten to neutral roots (ADR 0013). Shipped.
 
 ## Decisions
 
@@ -125,6 +124,7 @@ See `decisions/`.
 - 0010: Linux launcher. bubblewrap namespaces and view, a Python launcher applying Landlock, a hand-built seccomp filter, the proxy through a mounted Unix socket; the harness import root becomes the runtime read grant.
 - 0011: Published website. GitHub Pages from CI, built only from analysis produced at build time and native bundles; test-backend bundles refused.
 - 0012: Supported Linux matrix. Debian 12 (6.1, ABI 2) and Ubuntu 24.04 (6.17, ABI 7).
+- 0013: Bundle schema v2. Host paths rewritten to neutral roots; ids, hashes, and provenance unchanged.
 
 ## Session log
 
@@ -140,3 +140,4 @@ See `decisions/`.
 | 2026-10-09 | First push to `johnnygreco/agent-in-a-box`. CI: Linux job passed; macOS job failed on two process-group tests because macOS refuses `killpg(group, 0)` where Linux does not. Fixed by enumerating group members with `pgrep -g` and signalling per process when the group signal is refused; the teardown report now lists actual survivors. Recorded in PLAN.md that GitHub's Apple silicon macOS runner satisfies the native gates, so the work can be finished from this Linux machine. |
 | 2026-10-09 | Owner decision: publish the pedagogical website to GitHub Pages. Pages enabled on the repository with GitHub Actions as the source. Publishing rules added to PLAN.md (Product shape); deployment pipeline handed to the implementer as the next item. |
 | 2026-10-09 | Milestone 1-L complete. `LandlockBackend`: bubblewrap namespaces and a filesystem view mirroring the grant plan, a Python launcher that applies Landlock and probes the confinement, a hand-built seccomp socket-family filter, the proxy through a mounted Unix socket, and PID-namespace teardown with a verified-empty check (ADR 0010). The shared conformance suite and 9 Linux-only checks pass natively on Debian 12 / 6.1 / ABI 2 and on the ubuntu-24.04 runner (6.17, ABI 7), where CI requires them (ADR 0012). Found and fixed: Landlock needs read with execute, `> /dev/null` needs truncate from ABI 3, and a new Python process needs to list its import root (shared runtime grant, ADR 0010). GitHub Pages pipeline added and the site deployed to https://johnnygreco.dev/agent-in-a-box/ with build-time analysis and native-recording placeholders (ADR 0011). |
+| 2026-10-09 | Bundle schema v2 rewrites host paths to neutral roots (ADR 0013). First native recordings shipped in `bundles/` (trailer and chapter 5, `enforcement: landlock`, Debian 12 host); the website's run panels now show them. Next: Milestone 1 (Seatbelt) on the macos-15 runner. |

@@ -510,7 +510,7 @@ Separate event provenance: host enforcement decision, agent-reported tool output
 
 Use run IDs, command IDs, policy and profile hashes, request IDs, and ordered immutable records. Retried control commands return their stored result; refreshing a page or reconnecting an event stream cannot execute a second command. Agent output is untrusted data and cannot emit privileged host records. Bound event sizes and retained transcripts.
 
-Export one versioned experiment bundle: scenario and fixture hashes, source policies and schema, derived grants and profile hash, tool and backend manifests, process and connection lifecycle, requests and observations, raw symbolic evidence, witness replay results, and nonsecret provider mappings. Import displays recorded evidence. Explicit replay reevaluates decisions without effects; live reproduction creates a fresh run. If a changed decision invalidates the later recorded trajectory, label later actions hypothetical or branch into a new experiment.
+Export one versioned experiment bundle, with host paths rewritten to neutral roots ([ADR 0013](decisions/0013-bundle-v2-neutral-paths.md)): scenario and fixture hashes, source policies and schema, derived grants and profile hash, tool and backend manifests, process and connection lifecycle, requests and observations, raw symbolic evidence, witness replay results, and nonsecret provider mappings. Import displays recorded evidence. Explicit replay reevaluates decisions without effects; live reproduction creates a fresh run. If a changed decision invalidates the later recorded trajectory, label later actions hypothetical or branch into a new experiment.
 
 ## Repository layout
 
