@@ -4,13 +4,17 @@ Working state for the implementing agent. Update at the end of every working ses
 
 ## Current milestone
 
-M0: every gate item below is checked on this Linux host (2026-10-09), under the test backend only. The CI workflow is written but has never run: `origin` exists and nothing is pushed yet. The owner may want CI to pass before declaring M0 closed. Next: Milestone 1 needs a Mac (blocked). Milestone 1-L can proceed on this host (primacy rule 5).
+M0 is closed and pushed, with CI green on `ubuntu-24.04` and `macos-15`. Milestone 1-L (Linux backend) is complete: every gate item below is checked, natively, on two hosts (ADR 0012). The GitHub Pages site is live at https://johnnygreco.dev/agent-in-a-box/ (ADR 0011). Next: Milestone 1, the macOS Seatbelt backend, which CI's `macos-15` runner can now exercise (PLAN.md). Platform-independent Milestone 2 work can proceed alongside it.
 
-Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, `python3 tooling/bootstrap.py --with-cli`, and `npm ci` in `website/` (see README.md). Last result (2026-10-09, this checkout): 779 passed, 22 skipped. The skips are 20 native conformance probes (10 per native backend) and 2 source-route entries for code not yet written. The count includes 48 local cases from the git-ignored working folder; a public checkout skips that module.
+Run everything with `uv run pytest` after `uv sync --locked --extra notebooks`, `python3 tooling/bootstrap.py --with-cli`, and `npm ci` in `website/` (see README.md). Last result (2026-10-09, this checkout): 821 passed, 11 skipped. The skips are the 10 Seatbelt conformance probes (no macOS here) and 1 source-route entry for code not yet written (the model bridge). The Landlock conformance probes and Linux-only extras ran natively. The count includes 48 local cases from the git-ignored working folder; a public checkout skips that module.
 
 ## Last native validation
 
-None. No Seatbelt behavior has been exercised. No native-enforcement claim may be made anywhere in this repository until this section names a macOS build, hardware, date, and the passing test suite.
+**Linux (`LandlockBackend`), 2026-10-09.** Suites: `tests/backends/conformance` (10 shared probes from CURRICULUM.md's table, `enforcement: landlock`) and `tests/native/linux` (9 Linux-only checks), all passing. Approach: bubblewrap namespaces and filesystem view, a Python launcher applying Landlock, and a seccomp socket-family filter (ADR 0010).
+- Debian 12 (bookworm), kernel 6.1.0-50-cloud-amd64, Landlock ABI 2, bubblewrap 0.8.0, x86-64 KVM guest (AMD EPYC 7B12, 8 vCPUs): the development workspace.
+- Ubuntu 24.04.5 LTS, kernel 6.17.0-1022-azure, Landlock ABI 7, bubblewrap 0.9.0, x86-64 GitHub-hosted runner, with `kernel.apparmor_restrict_unprivileged_userns=0`: CI job `linux-native`, required to run rather than skip.
+
+**macOS (`SeatbeltBackend`): none.** No Seatbelt behavior has been exercised. No macOS enforcement claim may be made anywhere in this repository until this section names a macOS build, hardware, date, and the passing test suite.
 
 ## Gate checklist
 
@@ -41,20 +45,20 @@ None. No Seatbelt behavior has been exercised. No native-enforcement claim may b
 ### M1-L — Linux enforcement backend (scheduled, secondary)
 Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.md, Platform decision, primacy rules. Any shared-contract change motivated here needs an ADR stating macOS impact is nil.
 - [x] Owner scheduled this milestone (ADR 0001)
-- [ ] Launcher approach chosen (bubblewrap plus Landlock/seccomp helper by default) and recorded as an ADR
-- [ ] Backend module boundary rules pass in CI (no core imports of backends, no platform checks outside backends and composition, conformance suite parameterized). The tests exist and pass locally (`tests/backends/test_module_boundary.py`); CI has not run
-- [ ] Every Linux expected-fail in the conformance suite has a documented reason in reference/platform-differences.md
-- [ ] Landlock ruleset applies; Bash and child Python inherit it
-- [ ] Declared grants work; canaries, protected state, and symlink/replacement cases are blocked
-- [ ] Network namespace with proxy-only reachability; direct IPv4/IPv6, UDP, alternate loopback, and IPC paths blocked
-- [ ] seccomp socket-family filter in place and tested
-- [ ] PID namespace cleanup covers detached descendants
-- [ ] Doctor checks Landlock LSM, ABI version, unprivileged user namespaces, and bubblewrap
-- [ ] Supported kernel and distribution matrix recorded as an ADR
-- [ ] `reference/platform-differences.md` rows confirmed by the probe suite
+- [x] Launcher approach chosen (bubblewrap plus Landlock/seccomp helper by default) and recorded as an ADR (ADR 0010: bubblewrap, a Python launcher using the Landlock system calls, a hand-built seccomp filter; no compiled helper)
+- [x] Backend module boundary rules pass in CI (no core imports of backends, no platform checks outside backends and composition, conformance suite parameterized)
+- [x] Every Linux expected-fail in the conformance suite has a documented reason in reference/platform-differences.md (there are none; every shared probe passes as authored)
+- [x] Landlock ruleset applies; Bash and child Python inherit it
+- [x] Declared grants work; canaries, protected state, and symlink/replacement cases are blocked
+- [x] Network namespace with proxy-only reachability; direct IPv4/IPv6, UDP, alternate loopback, and IPC paths blocked
+- [x] seccomp socket-family filter in place and tested
+- [x] PID namespace cleanup covers detached descendants (including a new-session descendant)
+- [x] Doctor checks Landlock LSM, ABI version, unprivileged user namespaces, and bubblewrap (and seccomp; it names the AppArmor restriction when that is the cause)
+- [x] Supported kernel and distribution matrix recorded as an ADR (ADR 0012)
+- [x] `reference/platform-differences.md` rows confirmed by the probe suite (Linux rows; macOS rows stay to confirm)
 
 ### M2 — First complete experiment and pilot gate
-- [ ] GitHub Pages deployment: CI builds the site with the project base path and deploys it from `main` after tests pass; the publishing step refuses `enforcement: none` bundles; lessons without a native recording say so; site live at https://johnnygreco.dev/agent-in-a-box/ (owner request, 2026-10-09; may land before M1-L completes)
+- [x] GitHub Pages deployment: CI builds the site with the project base path and deploys it from `main` after tests pass; the publishing step refuses `enforcement: none` bundles; lessons without a native recording say so; site live at https://johnnygreco.dev/agent-in-a-box/ (owner request, 2026-10-09; may land before M1-L completes) Live since 2026-10-09 (ADR 0011): chapters 0 and 5 show analysis results produced at build time and placeholders for runs without a native recording.
 - [ ] `SeatbeltBackend` wired; trailer runs live on the Mac
 - [ ] Shipped recorded bundles produced on the Mac with full provenance
 - [ ] Chapters 0, 1, 3 (minimal), 5 complete with hosted interactivity
@@ -78,12 +82,11 @@ Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.m
 ## Blockers
 
 - **Milestone 1 (macOS Seatbelt) needs a Mac.** The SBPL renderer exists and is tested only as text; the launcher, probes, and doctor are not written. The conformance suite skips Seatbelt here because its doctor refuses on Linux.
-- **CI has never run.** No remote is configured (see Questions).
 
 ## Follow-ups (implementing agent)
 
-- Milestone 1-L (Linux backend) can start on this host: Landlock renderer, bubblewrap and seccomp launcher, doctor, and an ADR for the launcher approach.
-- CURRICULUM.md probe "GET a nonexistent path through the proxy" needs an owner decision before its expectation can be implemented (Questions).
+- Native recordings for the website: the trailer and chapter 5 can now be recorded under `enforcement: landlock` and shipped in `bundles/` (primacy rule 4 allows Linux recordings until macOS ones exist). Waiting on question 6.
+- arm64 Linux is untested natively; the seccomp program's arm64 variant is checked only by unit tests (ADR 0012).
 - Redirect handling and its tests are scheduled with Milestone 3's bypass tests (ADR 0004).
 - The `SeatbeltBackend` OS baseline (`os_baseline.py`) was rewritten from first principles, one reasoned rule per entry (ADR 0008). It must be confirmed on a Mac in Milestone 1, and `sysctl-read` narrowed to named parameters there.
 - The schema's vocabulary (entity types, actions, endpoint attributes) was designed in the first session with an external schema in view. Its comments are now our own, and no source is named. If the owner wants the vocabulary itself redesigned independently, that is a schema change with an ADR (see Questions).
@@ -100,9 +103,11 @@ All four questions from the first session were answered on 2026-10-09:
 
 New owner rule, 2026-10-09: the public tree names no third-party project as a source of inspiration or reference, in documents, code, comments, tests, or lock files. Such material lives only in the git-ignored `inspiration/` folder. A CI grep gate enforces this (`tests/test_public_tree.py`, passing).
 
-Open question from the 2026-10-09 scrub:
+Open questions:
 
 5. **Schema vocabulary.** `policies/sandbox.cedarschema` keeps the entity and action names chosen in the first session (`Sandbox::Process`, `FilesystemPath`, `NetworkEndpoint` with `host`, `port`, `host_port`; actions `ReadFile`, `WriteFile`, `NetworkConnect`, `HttpRequest`). No source is named anywhere, and the comments are rewritten. Is the vocabulary itself acceptable to keep, or should it be redesigned? Redesign touches every policy, lesson snippet, and oracle case.
+
+6. **Publishing Linux recordings.** Native bundles carry absolute host paths (the run directory under the checkout, for example `/home/<user>/agent-in-a-box/.agent-in-a-box/runs/...`), the toolchain manifest, and the host's platform string. Should I record the trailer and chapter 5 under `enforcement: landlock` and ship them in `bundles/`, so the site's run panels fill in? If yes, should paths in shipped bundles be rewritten to a neutral run root before export? That would be a bundle-format change with an ADR.
 
 ## Decisions
 
@@ -117,6 +122,9 @@ See `decisions/`.
 - 0007: Backend `teardown` split into `wait` and `stop`; lifecycle reads as a sequence. macOS impact: none.
 - 0008: macOS baseline authored from first principles, each rule with its reason.
 - 0009: Oracle cases from the official Cedar CLI (generator never imports our package) and hand-authored compiler cases.
+- 0010: Linux launcher. bubblewrap namespaces and view, a Python launcher applying Landlock, a hand-built seccomp filter, the proxy through a mounted Unix socket; the harness import root becomes the runtime read grant.
+- 0011: Published website. GitHub Pages from CI, built only from analysis produced at build time and native bundles; test-backend bundles refused.
+- 0012: Supported Linux matrix. Debian 12 (6.1, ABI 2) and Ubuntu 24.04 (6.17, ABI 7).
 
 ## Session log
 
@@ -131,3 +139,4 @@ See `decisions/`.
 | 2026-10-09 | Review fixes: plain code on the teaching route (no tuple-assignment chains, closures over mutable locals, or lambdas in dicts); new concept files `network/protocol.py`, `policy/authored_ids.py`, `policy/domains.py`, `policy/policy_json.py`, `experiments/steps.py`, `models/report.py`; named trigger functions in the scripted model; explicit command dispatch; structured checks in the experiment scripts with step names defined once; agent events ordered by supervisor read time; evaluator names derived from the lock; backend `wait`/`stop` (ADR 0007). Owner items: public tree scrubbed of third-party names with a grep gate; macOS baseline rewritten (ADR 0008); public oracle cases from the official CLI (ADR 0009); Apache-2.0 in pyproject; `missing` fixture variant and its conformance probe; README banner. First local commit made; not pushed. |
 | 2026-10-09 | First push to `johnnygreco/agent-in-a-box`. CI: Linux job passed; macOS job failed on two process-group tests because macOS refuses `killpg(group, 0)` where Linux does not. Fixed by enumerating group members with `pgrep -g` and signalling per process when the group signal is refused; the teardown report now lists actual survivors. Recorded in PLAN.md that GitHub's Apple silicon macOS runner satisfies the native gates, so the work can be finished from this Linux machine. |
 | 2026-10-09 | Owner decision: publish the pedagogical website to GitHub Pages. Pages enabled on the repository with GitHub Actions as the source. Publishing rules added to PLAN.md (Product shape); deployment pipeline handed to the implementer as the next item. |
+| 2026-10-09 | Milestone 1-L complete. `LandlockBackend`: bubblewrap namespaces and a filesystem view mirroring the grant plan, a Python launcher that applies Landlock and probes the confinement, a hand-built seccomp socket-family filter, the proxy through a mounted Unix socket, and PID-namespace teardown with a verified-empty check (ADR 0010). The shared conformance suite and 9 Linux-only checks pass natively on Debian 12 / 6.1 / ABI 2 and on the ubuntu-24.04 runner (6.17, ABI 7), where CI requires them (ADR 0012). Found and fixed: Landlock needs read with execute, `> /dev/null` needs truncate from ABI 3, and a new Python process needs to list its import root (shared runtime grant, ADR 0010). GitHub Pages pipeline added and the site deployed to https://johnnygreco.dev/agent-in-a-box/ with build-time analysis and native-recording placeholders (ADR 0011). |

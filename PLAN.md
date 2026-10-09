@@ -121,7 +121,7 @@ Proceed with the default unless an ADR records a different choice.
 | Hosted Cedar interactivity | Try the pinned version's WebAssembly build in the browser; fall back to precomputed decision tables over the bounded domain. | ADR |
 | Scripted model format | A YAML strategy table loaded by the scripted adapter (CURRICULUM.md). | Proceed |
 | Oracle contract cases | Expected outcomes come from an independent implementation (the official Cedar CLI for authorization semantics) or are authored from this plan's stated rules before the code exists; never from the implementation under test. Cases derived from third-party material stay outside the public tree and their test skips when they are absent. Decided: `tests/oracle/` from the official CLI and hand-authored compiler cases ([ADR 0009](decisions/0009-oracle-cases.md)). | ADR 0009 |
-| Supported platform matrix | Decide from native results; do not extrapolate from other projects' claims. | ADR in M1 / M1-L |
+| Supported platform matrix | Decide from native results; do not extrapolate from other projects' claims. Linux decided: Debian 12 (kernel 6.1, Landlock ABI 2) and Ubuntu 24.04 (kernel 6.17, ABI 7) ([ADR 0012](decisions/0012-linux-supported-matrix.md)); macOS in M1. | ADR 0012 / ADR in M1 |
 
 ## Who this is for and what they learn
 
@@ -655,7 +655,7 @@ Platform: Linux. Scheduled on 2026-10-09 by the owner ([ADR 0001](decisions/0001
 
 **CI note.** GitHub's `ubuntu-24.04` runner restricts unprivileged user namespaces through AppArmor by default. The CI job may relax that with the runner's passwordless sudo or install bubblewrap's AppArmor profile; record which in the launcher ADR and keep the doctor's refusal message accurate for hosts that restrict it.
 
-**Exit:** the conformance suite passes on a named kernel version and distribution with `enforcement: landlock`; Linux-only extras pass; every expected-fail is documented in `reference/platform-differences.md` with its reason; the doctor refuses on hosts missing Landlock, unprivileged namespaces, or bubblewrap; STATUS.md records kernel, distribution, date, and approach.
+**Exit** (met 2026-10-09 on the hosts in [ADR 0012](decisions/0012-linux-supported-matrix.md)): the conformance suite passes on a named kernel version and distribution with `enforcement: landlock`; Linux-only extras pass; every expected-fail is documented in `reference/platform-differences.md` with its reason; the doctor refuses on hosts missing Landlock, unprivileged namespaces, or bubblewrap; STATUS.md records kernel, distribution, date, and approach.
 
 ### Milestone 2 — First complete experiment and pilot gate
 
