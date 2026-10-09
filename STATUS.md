@@ -54,7 +54,7 @@ Scheduled 2026-10-09 by the owner (decisions/0001). macOS is primary; see PLAN.m
 - [ ] `reference/platform-differences.md` rows confirmed by the probe suite
 
 ### M2 — First complete experiment and pilot gate
-- [ ] GitHub Pages deployment: CI builds the site with the project base path and deploys it from `main` after tests pass; the publishing step refuses `enforcement: none` bundles; lessons without a native recording say so; site live at https://johnnygreco.github.io/agent-in-a-box/ (owner request, 2026-10-09; may land before M1-L completes)
+- [ ] GitHub Pages deployment: CI builds the site with the project base path and deploys it from `main` after tests pass; the publishing step refuses `enforcement: none` bundles; lessons without a native recording say so; site live at https://johnnygreco.dev/agent-in-a-box/ (owner request, 2026-10-09; may land before M1-L completes)
 - [ ] `SeatbeltBackend` wired; trailer runs live on the Mac
 - [ ] Shipped recorded bundles produced on the Mac with full provenance
 - [ ] Chapters 0, 1, 3 (minimal), 5 complete with hosted interactivity

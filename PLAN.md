@@ -169,7 +169,7 @@ The particle-in-a-box analogy supplies only the method: establish boundaries, ob
 
 | Experience | Available behavior |
 | --- | --- |
-| Hosted course (GitHub Pages) | Published at https://johnnygreco.github.io/agent-in-a-box/ by CI from `main`. Read lessons, inspect code and diagrams, predict outcomes, evaluate hypothetical requests and the bounded matrix at the Cedar level, and replay bundled records. Recorded results are labeled recorded; no local execution is implied. |
+| Hosted course (GitHub Pages) | Published at https://johnnygreco.dev/agent-in-a-box/ by CI from `main`. Read lessons, inspect code and diagrams, predict outcomes, evaluate hypothetical requests and the bounded matrix at the Cedar level, and replay bundled records. Recorded results are labeled recorded; no local execution is implied. |
 | Local lab on a supported native platform | The local gateway serves the built site and authenticated API from the same origin. Start real sandboxed runs, edit policy, invoke the solver, and inspect fresh evidence. |
 | Marimo developer lab | Open editable Python notebooks to construct requests, compare policies, inspect traces, and control the same native runtime through its gateway. Recorded-data exploration is available without native execution. |
 
@@ -185,7 +185,7 @@ Use **Astro with MDX and small TypeScript interactive components**. Keep backend
 - **One live boundary diagram** on every experiment page: the agent plus four layers (kernel profile, proxy and bridge, Cedar, solver). Streaming events light up the layer that produced them and are positioned by provenance. The event list and the diagram render the same records.
 - **Controlled probes** are a named teaching device (chapter 4). Each ships with an authored expectation, the rule it hits, what the proxy and Cedar saw, and a "how we know" checklist. One author-recorded bundle of the same probes run under `NoEnforcementBackend` on the native platform provides contrast. It is recorded only and never a runnable mode.
 - **Glossary terms verbatim** on every result label; selecting a label opens the glossary entry.
-- **Deployment.** The Astro build uses the project base path (`/agent-in-a-box/`), every internal link and asset path respects it, and the README banner is reused on the index page.
+- **Deployment.** The site is served at https://johnnygreco.dev/agent-in-a-box/ because the owner's user site carries a custom domain; the `github.io` address redirects there. The Astro `site` is `https://johnnygreco.dev` and the build uses the project base path (`/agent-in-a-box/`), every internal link and asset path respects it, and the README banner is reused on the index page.
 - **Hosted interactivity at the Cedar level**: hypothetical-request evaluation and the bounded matrix run in the browser or against precomputed decision tables. Lesson solver results and witnesses are precomputed and labeled recorded. CURRICULUM.md marks each chapter hosted-interactive or recorded.
 - Reveal raw requests, profile text, solver input, and domain inventories on request. Text equivalents, keyboard controls, and outcomes that do not rely on color.
 - One canonical task throughout. Teach through interventions on the policy, the data, and the agent, not by operating a miniature cloud platform.
