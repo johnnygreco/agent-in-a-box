@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -79,32 +80,57 @@ class NoEnforcementBackend:
             return None
 
     def stop(self, process: ContainedProcess) -> TeardownReport:
-        """Signal the workload's process group: SIGTERM, then SIGKILL if needed."""
+        """Signal the workload's process group: SIGTERM, then SIGKILL if needed.
+
+        Membership comes from `pgrep -g`, which works the same on macOS and
+        Linux. Probing a group with `killpg(group, 0)` does not: macOS answers
+        "operation not permitted" where Linux answers "no such process".
+        """
         workload = self._processes.pop(process.pid)
-        signalled = False
+        signalled: set[int] = set()
         for signal_number in (signal.SIGTERM, signal.SIGKILL):
-            if not _group_exists(process.pid):
+            members = _group_members(process.pid)
+            if not members:
                 break
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal_number)
-                signalled = True
+            signalled.update(members)
+            _signal_group(process.pid, members, signal_number)
             time.sleep(0.2)
         workload.wait()
-        group_empty = not _group_exists(process.pid)
+        survivors = _group_members(process.pid)
+        for _ in range(10):  # give the kernel a moment to reap what was signalled
+            if not survivors:
+                break
+            time.sleep(0.1)
+            survivors = _group_members(process.pid)
+        limits = ["the test backend tracks one process group; a descendant that starts "
+                  "its own session is not tracked"]
+        if shutil.which("pgrep") is None:
+            limits.append("pgrep is not installed, so survivors could not be enumerated")
         return TeardownReport(
             exit_status=workload.returncode,
-            stopped=(process.pid,) if signalled else (),
-            survivors=() if group_empty else (process.pid,),
-            verified=group_empty,
-            limits=("the test backend tracks one process group; a descendant that starts "
-                    "its own session is not tracked",),
+            stopped=tuple(sorted(signalled - set(survivors))),
+            survivors=tuple(survivors),
+            verified=not survivors and shutil.which("pgrep") is not None,
+            limits=tuple(limits),
         )
 
 
-def _group_exists(group_id: int) -> bool:
-    """True if any process is still in the process group."""
+def _group_members(group_id: int) -> list[int]:
+    """PIDs still in the process group, oldest first. Empty when pgrep is missing."""
+    pgrep = shutil.which("pgrep")
+    if pgrep is None:
+        return []
+    listing = subprocess.run([pgrep, "-g", str(group_id)], capture_output=True, text=True)
+    return sorted(int(pid) for pid in listing.stdout.split())
+
+
+def _signal_group(group_id: int, members: list[int], signal_number: int) -> None:
+    """Signal the whole group; if the kernel refuses that, signal each member."""
     try:
-        os.killpg(group_id, 0)
+        os.killpg(group_id, signal_number)
     except ProcessLookupError:
-        return False
-    return True
+        return
+    except PermissionError:
+        for pid in members:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal_number)
