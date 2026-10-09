@@ -164,3 +164,17 @@ def test_ancestors():
 
     assert ancestors("/r/ws/results") == ["/r/ws", "/r", "/"]
     assert ancestors("/a") == ["/"]
+
+
+def test_working_directory_listing_only_when_given():
+    """getcwd(3) opens the working directory, so a run's profile lets it be listed."""
+    rule = '(allow file-read-data (literal "/r/ws"))'
+    assert rule not in render(PLAN).splitlines()
+    assert rule in render(PLAN, "m.x", "/r/ws").splitlines()
+    assert '(allow file-read* (literal "/r/ws"))' not in render(PLAN, "m.x", "/r/ws")
+
+
+def test_process_information_is_refused_except_about_itself():
+    lines = render(PLAN).splitlines()
+    deny, allow = "(deny process-info*)", "(allow process-info* (target self))"
+    assert lines.index(deny) < lines.index(allow)

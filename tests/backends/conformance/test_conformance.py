@@ -18,7 +18,7 @@ from agent_in_a_box.contracts import RunRecord, plain
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.policy import schema
-from tests.native.diagnostics import denials_on_failure, explain
+from tests.native.diagnostics import explain
 from tests.native.required import native_runtime_or_skip
 
 NATIVE_BACKENDS = ("seatbelt", "landlock")
@@ -33,6 +33,8 @@ class Probe:
     `command` is a bash command or, for `tool == "http"`, a URL. It may name
     {canary}, {outside} (paths outside every grant) and {direct} (the fixture's
     own host and port, which only the proxy should be able to reach).
+    `refuses` is what a blocked probe's error must name, so that a probe
+    blocked for an unrelated reason (a program that cannot start) fails.
     """
 
     name: str
@@ -42,13 +44,17 @@ class Probe:
     #               or "killed at teardown"
     method: str = "GET"
     variant: str = "default"
+    refuses: str = ""
 
 
 PROBES = [
     Probe("read a granted file", "bash", "cat measurements.csv", "succeeds"),
-    Probe("read a canary outside the grant", "bash", "cat {canary}", "blocked"),
-    Probe("write outside the grant", "bash", "echo x > {outside}/file", "blocked"),
-    Probe("read protected supervisor state", "bash", "cat ../private/policy.cedar", "blocked"),
+    Probe("read a canary outside the grant", "bash", "cat {canary}", "blocked",
+          refuses="{canary}"),
+    Probe("write outside the grant", "bash", "echo x > {outside}/file", "blocked",
+          refuses="{outside}/file"),
+    Probe("read protected supervisor state", "bash", "cat ../private/policy.cedar", "blocked",
+          refuses="../private/policy.cedar"),
     Probe("GET through the proxy", "http", scenario.REFERENCE_URL, "allowed"),
     Probe("GET directly to the fixture host and port", "bash",
           "curl -sS --fail --noproxy '*' --max-time 5 http://{direct}/reference", "blocked"),
@@ -57,7 +63,7 @@ PROBES = [
     Probe("GET through the proxy when the fixture has no data", "http", scenario.REFERENCE_URL,
           "allowed, then 404", variant="missing"),
     Probe("child Python reads the canary", "bash",
-          "python3 -c 'print(open(\"{canary}\").read())'", "blocked"),
+          "python3 -c 'print(open(\"{canary}\").read())'", "blocked", refuses="{canary}"),
     Probe("detach and sleep", "bash", "nohup sleep 600 >/dev/null 2>&1 &", "killed at teardown"),
 ]
 
@@ -83,10 +89,15 @@ def observation(record: RunRecord) -> dict:
     return events(record, "agent.observation")[0]["data"]["observation"]
 
 
-def run_probe(runtime, probe: Probe, tmp_path) -> RunRecord:
+def probe_paths(tmp_path) -> dict[str, str]:
+    """The canary file and the outside directory, created once per test."""
     (tmp_path / "canary.txt").write_text("canary\n")
-    (tmp_path / "outside").mkdir()
-    paths = {"canary": str(tmp_path / "canary.txt"), "outside": str(tmp_path / "outside")}
+    (tmp_path / "outside").mkdir(exist_ok=True)
+    return {"canary": str(tmp_path / "canary.txt"), "outside": str(tmp_path / "outside")}
+
+
+def run_probe(runtime, probe: Probe, tmp_path) -> RunRecord:
+    paths = probe_paths(tmp_path)
 
     def build_call(route: Route) -> dict:
         return tool_call(probe, route, paths)
@@ -95,7 +106,7 @@ def run_probe(runtime, probe: Probe, tmp_path) -> RunRecord:
                         probe=build_call, deadline_s=20)
 
 
-def check_expected(record: RunRecord, probe: Probe) -> None:
+def check_expected(record: RunRecord, probe: Probe, paths: dict[str, str]) -> None:
     """Compare a run's evidence with the probe's authored expectation and "how we know"."""
     decisions = events(record, "proxy.decision")
     receipts = events(record, "fixture.receipt")
@@ -107,6 +118,8 @@ def check_expected(record: RunRecord, probe: Probe) -> None:
     elif probe.expected == "blocked":
         assert not observation(record)["ok"]
         assert decisions == [] and receipts == []
+        refused = probe.refuses.format(**paths)
+        assert refused in observation(record)["output"], observation(record)["output"]
     elif probe.expected == "refused":
         assert [decision["label"] for decision in decisions] == ["refused"]
         assert receipts == []
@@ -127,8 +140,7 @@ def test_probe(native_runtime, probe, tmp_path):
     reason = EXPECTED_FAIL.get((native_runtime.backend.name, probe.name))
     if reason:
         pytest.xfail(reason)
-    with denials_on_failure(native_runtime.backend.name):
-        record = run_probe(native_runtime, probe, tmp_path)
-        assert record.status == "completed", explain(record)
-        assert record.enforcement == native_runtime.backend.name
-        check_expected(record, probe)
+    record = run_probe(native_runtime, probe, tmp_path)
+    assert record.status == "completed", explain(record)
+    assert record.enforcement == native_runtime.backend.name
+    check_expected(record, probe, probe_paths(tmp_path))

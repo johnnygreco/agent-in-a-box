@@ -23,7 +23,7 @@ import pytest
 
 from agent_in_a_box.experiments import scenario
 from agent_in_a_box.policy import schema
-from tests.native.diagnostics import denials_on_failure, seatbelt_denials
+from tests.native.diagnostics import seatbelt_denials
 from tests.native.required import native_runtime_or_skip
 from tests.native.workload import events, run_bash, run_python
 
@@ -35,9 +35,7 @@ REFUSED = "Operation not permitted"
 
 @pytest.fixture
 def runtime(tmp_path):
-    runtime = native_runtime_or_skip("seatbelt", tmp_path / "runs")
-    with denials_on_failure("seatbelt"):
-        yield runtime
+    return native_runtime_or_skip("seatbelt", tmp_path / "runs")
 
 
 def test_bash_and_child_python_run_under_the_profile(runtime):
@@ -237,11 +235,11 @@ def test_the_kernel_reports_what_it_refused(runtime, tmp_path):
     _, observation = run_bash(runtime, f"cat {canary}")
     assert REFUSED in observation["output"]
     real = os.path.realpath(canary)
-    for _ in range(10):
+    for _ in range(20):  # the unified log can lag the kernel
         lines = seatbelt_denials(since)
         if any(f"deny(1) file-read-data {real}" in line for line in lines):
             break
-        time.sleep(0.5)
+        time.sleep(1)
     assert any(f"deny(1) file-read-data {real}" in line for line in lines), lines
 
 

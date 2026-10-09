@@ -11,8 +11,8 @@ removed at a time, and each entry here is either one whose removal broke
 something, named in its reason, or one the programs read whose loss the
 runner cannot show (noted in its reason). Entries the first draft guessed and
 the runner showed unnecessary were removed (decisions/0008): the on-disk
-system libraries, the dyld shared cache, ICU data, /dev/urandom, and the
-notification and logging services. Programs load system code from the
+system libraries, the dyld shared cache, ICU data, /dev/urandom, /tmp, and
+the notification and logging services. Programs load system code from the
 shared cache, which the kernel maps before the profile applies.
 
 Nothing here grants access to user data: no path under /Users, no writable
@@ -79,6 +79,9 @@ BASELINE: tuple[Entry, ...] = (
     Entry("file-read-metadata", "literal", "/etc",
           "/etc is a symbolic link to /private/etc; programs reach the time zone setting "
           "through it."),
+    Entry("file-read-metadata", "literal", "/var",
+          "/var is a symbolic link to /private/var; the time zone setting points through it "
+          "to the rules."),
     Entry("file-read*", "subpath", "/usr/share/locale",
           "Character tables for LANG=C.UTF-8, which the workload's environment sets; without "
           "them programs fall back to ASCII."),

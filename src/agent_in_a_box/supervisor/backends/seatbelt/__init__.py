@@ -102,6 +102,9 @@ class SeatbeltBackend:
                 "An execute grant lets the workload run a program without reading its bytes.",
                 "Programs list the root directory as they start, so the names of top-level "
                 "directories are visible.",
+                "The working directory's names can be listed, because getcwd opens it; "
+                "reading what they name still needs a grant. Python started in a directory "
+                "the workload cannot read fails at its first import.",
                 "Inside a protected directory, a missing name reports 'No such file or "
                 "directory' and an existing one 'Operation not permitted': names can be "
                 "probed, not read.",
@@ -118,7 +121,7 @@ class SeatbeltBackend:
     def prepare(self, plan: GrantPlan, run: RunSpec) -> PreparedProfile:
         nonce = secrets.token_hex(4)
         marker = accounting.Marker.for_run(f"{run.run_id}.{nonce}")
-        text = render(plan, marker.marker)
+        text = render(plan, marker.marker, os.path.realpath(run.workspace))
         private = Path(run.private)
         (private / "profile.sb").write_text(text)
         launch = {"profile": text, "probes": self_probes(plan, nonce),

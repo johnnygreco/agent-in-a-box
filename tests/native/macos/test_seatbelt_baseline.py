@@ -61,6 +61,7 @@ EVIDENCE = {
     "file-read* /private/etc/localtime": Logged(TIME_ZONE, "/private/etc/localtime"),
     "file-read* /private/var/db/timezone": Logged(TIME_ZONE, "/private/var/db/timezone"),
     "file-read-metadata /etc": Logged(TIME_ZONE, "/etc"),
+    "file-read-metadata /var": Logged(TIME_ZONE, "/var"),
     "file-read* /usr/share/locale": Logged(["/bin/ls"], "/usr/share/locale"),
     "file-read* /System/Library/CoreServices/SystemVersion.plist": Visible(
         [PY, "-c", "import platform; print('version=' + platform.mac_ver()[0])"], "version=\n"),
@@ -94,15 +95,18 @@ def setting(tmp_path_factory):
 
 
 def confined(plan, env, cwd, argv, without=None):
+    """Run `argv` under the profile, less one entry; return (result, pid)."""
     kept = tuple(entry for entry in os_baseline.BASELINE if entry is not without)
     original = profile.BASELINE
     profile.BASELINE = kept
     try:
-        text = profile.render(plan, "org.agent-in-a-box.run.baseline-test")
+        text = profile.render(plan, "org.agent-in-a-box.run.baseline-test", cwd)
     finally:
         profile.BASELINE = original
-    return subprocess.run([PY, "-c", CONFINE, *argv], env={**env, "AIB_PROFILE": text}, cwd=cwd,
-                          capture_output=True, text=True, timeout=60)
+    child = subprocess.Popen([PY, "-c", CONFINE, *argv], env={**env, "AIB_PROFILE": text},
+                             cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = child.communicate(timeout=60)
+    return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr), child.pid
 
 
 def shows(result, text):
@@ -111,13 +115,18 @@ def shows(result, text):
     return text in result.stdout + result.stderr
 
 
-def logged_denial(since, path):
-    for _ in range(10):  # the unified log can lag the kernel by a moment
-        lines = seatbelt_denials(since)
-        if any(line.rstrip().endswith(f" {path}") or f" {path}/" in line for line in lines):
-            return True, lines
-        time.sleep(0.5)
-    return False, lines
+def names(line, pid, path):
+    """Whether a denial line is for process `pid` and names `path` or a path below it."""
+    return f"({pid}) deny" in line and (line.rstrip().endswith(f" {path}") or f" {path}/" in line)
+
+
+def logged_denial(since, pid, path):
+    deadline = time.monotonic() + 20  # the unified log can lag the kernel
+    while True:
+        lines = seatbelt_denials(since, pid)
+        if any(names(line, pid, path) for line in lines) or time.monotonic() > deadline:
+            return any(names(line, pid, path) for line in lines), lines
+        time.sleep(1)
 
 
 def test_every_entry_has_evidence():
@@ -128,9 +137,9 @@ def test_every_entry_has_evidence():
 def test_entry_is_needed(setting, entry):
     run, plan, env = setting
     evidence = EVIDENCE[key(entry)]
-    full = confined(plan, env, run.workspace, evidence.argv)
     since = time.time()
-    without = confined(plan, env, run.workspace, evidence.argv, without=entry)
+    full, full_pid = confined(plan, env, run.workspace, evidence.argv)
+    without, without_pid = confined(plan, env, run.workspace, evidence.argv, without=entry)
     report = (f"full profile: exit {full.returncode}, {full.stdout[-300:]!r} {full.stderr[-300:]!r}"
               f"\nwithout the entry: exit {without.returncode}, {without.stdout[-300:]!r} "
               f"{without.stderr[-300:]!r}")
@@ -138,5 +147,8 @@ def test_entry_is_needed(setting, entry):
         assert not shows(full, evidence.shows), report
         assert shows(without, evidence.shows), report
     else:
-        found, lines = logged_denial(since, evidence.path)
+        found, lines = logged_denial(since, without_pid, evidence.path)
         assert found, report + "\nSeatbelt denials:\n" + "\n".join(lines)
+        refused = [line for line in seatbelt_denials(since, full_pid)
+                   if names(line, full_pid, evidence.path)]
+        assert not refused, report + "\nthe full profile was refused it too:\n" + "\n".join(refused)

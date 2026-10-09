@@ -38,5 +38,8 @@ def run_python(runtime, code, **tokens):
     command = "python3 -c " + "'" + code.replace("'", "'\"'\"'") + "'"
     record, observation = run_bash(runtime, command, **tokens)
     lines = observation["output"].strip().splitlines()
-    assert lines, observation
-    return record, json.loads(lines[-1])
+    try:
+        return record, json.loads(lines[-1])
+    except (IndexError, ValueError):
+        output = observation["output"]
+        raise AssertionError(f"the child program printed no result:\n{output}") from None

@@ -11,7 +11,9 @@ from __future__ import annotations
 import pytest
 
 from agent_in_a_box import composition
-from tests.backends.conformance.test_conformance import PROBES, check_expected, run_probe
+from tests.backends.conformance.test_conformance import (
+    PROBES, check_expected, probe_paths, run_probe,
+)
 
 NO_BOUNDARY_NEEDED = {
     "read a granted file",
@@ -29,7 +31,7 @@ def test_suite_machinery(probe, tmp_path):
                                        runs_dir=tmp_path / "runs")
     record = run_probe(composition.assemble(config), probe, tmp_path)
     assert record.enforcement == "none"
-    check_expected(record, probe)
+    check_expected(record, probe, probe_paths(tmp_path))
 
 
 def test_every_probe_in_the_curriculum_table_is_in_the_suite():

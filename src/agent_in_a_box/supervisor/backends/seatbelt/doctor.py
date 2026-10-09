@@ -22,7 +22,8 @@ from agent_in_a_box.contracts import DoctorCheck
 from agent_in_a_box.supervisor.backends.seatbelt import accounting, sandbox
 from agent_in_a_box.supervisor.backends.seatbelt.profile import baseline_lines, marker_lines
 
-# The macOS releases on which the native suite has passed (decisions/0015).
+# The macOS releases on which the native suite has passed (decisions/0015). Others run
+# if the trial passes, and the doctor says they are outside the validated matrix.
 VALIDATED_RELEASES = ("15",)
 TRIAL_TIMEOUT_S = 30.0
 
@@ -40,11 +41,13 @@ def macos() -> DoctorCheck:
     return DoctorCheck("macOS host", sys.platform == "darwin", f"sys.platform is {sys.platform}")
 
 
-def apple_silicon() -> DoctorCheck:
+def architecture() -> DoctorCheck:
     machine = platform.machine()
-    return DoctorCheck("Apple silicon", machine == "arm64",
-                       f"machine is {machine}; the supported matrix is Apple silicon "
-                       "(decisions/0015)")
+    validated = machine == "arm64"
+    return DoctorCheck("architecture", True,
+                       f"{machine} is in the validated matrix" if validated else
+                       f"{machine} is outside the validated matrix (decisions/0015); "
+                       "the trial below decides")
 
 
 def release() -> DoctorCheck:
@@ -123,7 +126,7 @@ def checks() -> tuple[DoctorCheck, ...]:
     found = [macos()]
     if not found[0].ok:
         return tuple(found)
-    found += [apple_silicon(), release(), library(), process_listing()]
+    found += [architecture(), release(), library(), process_listing()]
     if all(check.ok for check in found):
         found += trial()
     return tuple(found)

@@ -14,7 +14,8 @@ Shape of the profile, in order:
 3. Runtime grants: the interpreter, harness code, and the run's home and
    tmp, which the supervisor supplies and discloses apart from the task.
 4. Task grants derived from policy.
-5. Metadata on every ancestor of a granted path, so lookups reach it.
+5. Metadata on every ancestor of a granted path, so lookups reach it, and
+   the listing of the working directory, which getcwd(3) opens.
 6. Network: only TCP to the per-run proxy's port on localhost. No DNS, no
    UDP, no other ports, no Unix sockets.
 7. The run's marker: a Mach name no service uses, which lets the supervisor
@@ -146,6 +147,12 @@ def ancestor_lines(plan: GrantPlan) -> list[str]:
 # ── The profile ───────────────────────────────────────────────────────────
 
 
+def working_directory_lines(path: str) -> list[str]:
+    return [";; The working directory: getcwd(3) opens it to learn its path, so the workload",
+            ";; can list the names in it. Reading what they name still needs a grant.",
+            f"(allow file-read-data (literal {sbpl_path(path)}))"]
+
+
 def network_lines(plan: GrantPlan) -> list[str]:
     return [";; Network: only TCP to the per-run proxy. Seatbelt's localhost is 127.0.0.1 and ::1.",
             f'(allow network-outbound (remote tcp "localhost:{plan.proxy_port}"))']
@@ -197,10 +204,12 @@ def self_probes(plan: GrantPlan, nonce: str, exists=os.path.exists) -> list[dict
     return probes
 
 
-def render(plan: GrantPlan, marker: str | None = None) -> str:
+def render(plan: GrantPlan, marker: str | None = None,
+           working_directory: str | None = None) -> str:
     """The whole profile: one section per step listed in the module docstring.
 
-    `marker` is the run's marker name; a profile rendered for display has none.
+    `marker` is the run's marker name and `working_directory` the workload's
+    working directory; a profile rendered for display has neither.
     """
     if not 1 <= plan.proxy_port <= 65535:
         raise ValueError(f"proxy port out of range: {plan.proxy_port}")
@@ -213,6 +222,7 @@ def render(plan: GrantPlan, marker: str | None = None) -> str:
         grant_lines("Runtime grants", plan.runtime),
         grant_lines("Task grants", plan.task),
         ancestor_lines(plan),
+        working_directory_lines(working_directory) if working_directory else [],
         network_lines(plan),
         marker_lines(marker) if marker else [],
         protected_lines(plan),
