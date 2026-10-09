@@ -236,8 +236,8 @@ def test_the_kernel_reports_what_it_refused(runtime, tmp_path):
     _, observation = run_bash(runtime, f"cat {canary}")
     assert REFUSED in observation["output"]
     real = os.path.realpath(canary)
-    for _ in range(20):  # the unified log can lag the kernel
-        lines = seatbelt_denials(since)
+    for _ in range(60):  # the unified log can lag the kernel, more so on a busy runner
+        lines = seatbelt_denials(since, limit=None)
         if any(f"deny(1) file-read-data {real}" in line for line in lines):
             break
         time.sleep(1)

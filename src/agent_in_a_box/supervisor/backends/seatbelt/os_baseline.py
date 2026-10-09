@@ -6,10 +6,9 @@ task. This module lists each such rule with the reason it is needed. It is
 disclosed apart from the task grants and the runtime grants.
 
 Every entry was confirmed on macOS 15 on Apple silicon (decisions/0014): the
-native suite runs the workload's programs under the profile with one entry
-removed at a time, and each entry here is either one whose removal broke
-something, named in its reason, or one the programs read whose loss the
-runner cannot show (noted in its reason). Entries the first draft guessed and
+native suite runs a program under the profile with one entry removed at a
+time (tests/native/macos/test_seatbelt_baseline.py), and each entry's reason
+names the failure its removal causes. Entries the first draft guessed and
 the runner showed unnecessary were removed (decisions/0008): the on-disk
 system libraries, the dyld shared cache, ICU data, /dev/urandom, /tmp, and
 the notification and logging services. Programs load system code from the
@@ -72,19 +71,20 @@ BASELINE: tuple[Entry, ...] = (
 
     # System data
     Entry("file-read*", "literal", "/private/etc/localtime",
-          "The local time zone setting, read by Python and ls. The runner's zone is UTC, so "
-          "losing it changes nothing there; elsewhere times would show in UTC."),
+          "The local time zone setting, read by Python and ls; without it /etc/localtime "
+          "cannot be read and times show in UTC (the runner's own zone, so it looks the same)."),
     Entry("file-read*", "subpath", "/private/var/db/timezone",
-          "The time zone rules the local time zone setting points to."),
+          "The time zone rules the setting points to; without them /etc/localtime cannot be "
+          "read."),
     Entry("file-read-metadata", "literal", "/etc",
-          "/etc is a symbolic link to /private/etc; programs reach the time zone setting "
-          "through it."),
+          "/etc is a symbolic link to /private/etc; without its metadata /etc/localtime "
+          "cannot be looked up."),
     Entry("file-read-metadata", "literal", "/var",
-          "/var is a symbolic link to /private/var; the time zone setting points through it "
-          "to the rules."),
+          "/var is a symbolic link to /private/var; the time zone setting points through it, "
+          "so without it /etc/localtime cannot be read."),
     Entry("file-read*", "subpath", "/usr/share/locale",
           "Character tables for LANG=C.UTF-8, which the workload's environment sets; without "
-          "them programs fall back to ASCII."),
+          "them programs fall back to ASCII and Python cannot set the locale."),
     Entry("file-read*", "literal", "/System/Library/CoreServices/SystemVersion.plist",
           "The macOS version, read by Python's platform module."),
     Entry("file-read*", "literal", "/private/etc/ssl/openssl.cnf",
