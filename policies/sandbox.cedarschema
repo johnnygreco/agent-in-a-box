@@ -1,0 +1,84 @@
+// Agent in a Box sandbox schema, pinned in milestone 0.
+//
+// It declares only facts the runtime can establish itself:
+//   - who is asking: always the one sandboxed process of this run;
+//   - which file subtree, for the file actions that are compiled into
+//     kernel grants before launch;
+//   - which network endpoint, and for an HTTP request the method and path
+//     the proxy parsed.
+// There is deliberately no field for the executable that made a request, its
+// parent processes, or SQL and JSON-RPC details: nothing in the runtime can
+// supply those truthfully, so a policy that mentions them fails validation at
+// load instead of silently never matching.
+
+namespace Sandbox {
+
+  // ── Principals ────────────────────────────────────────────────────────
+  // The runtime builds one Process, "current", per request. The agent never
+  // supplies these values.
+
+  entity User {};
+  entity Group {};
+
+  entity Process {
+    user:  User,
+    group: Group,
+  };
+
+  // ── Filesystem resources ──────────────────────────────────────────────
+  // A path is a member of its parent directory's entity, so
+  // `resource in FilesystemPath::"/workspace/results"` names a whole subtree.
+  // Paths are logical paths inside the run's workspace.
+
+  entity FilesystemPath in [FilesystemPath] {};
+
+  // ── Network resources ─────────────────────────────────────────────────
+  // Entity id is "host:port" with a lowercase host, built by the proxy from
+  // the destination it normalized, never from an agent-supplied header.
+
+  entity NetworkEndpoint {
+    host:      String,
+    port:      Long,
+    host_port: String,
+  };
+
+  // ── Actions ───────────────────────────────────────────────────────────
+  // ReadFile and WriteFile are compiled into kernel grants before launch.
+  // They are not evaluated per operation.
+
+  action "ReadFile"
+    appliesTo {
+      principal: [Process],
+      resource:  [FilesystemPath],
+      context:   {}
+    };
+
+  action "WriteFile"
+    appliesTo {
+      principal: [Process],
+      resource:  [FilesystemPath],
+      context:   {}
+    };
+
+  // Evaluated by the proxy when the workload asks to reach an endpoint. No
+  // request has been read yet, so there is no method or path to report.
+  action "NetworkConnect"
+    appliesTo {
+      principal: [Process],
+      resource:  [NetworkEndpoint],
+      context:   {}
+    };
+
+  // Evaluated by the proxy for each HTTP request it parsed.
+  // method: the request method from the request line.
+  // path:   the request target's path, without query string.
+  action "HttpRequest"
+    appliesTo {
+      principal: [Process],
+      resource:  [NetworkEndpoint],
+      context: {
+        method: String,
+        path:   String,
+      }
+    };
+}

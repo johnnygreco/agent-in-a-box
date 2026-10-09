@@ -1,0 +1,19 @@
+[package]
+name = "agent-in-a-box-cedar"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "Apache-2.0"
+publish = false
+description = "JSON bridge to the pinned Cedar authorizer and Cedar SymCC for Agent in a Box (see decisions/0002)."
+
+# Exact pins: one dependency graph for concrete evaluation and symbolic analysis.
+[dependencies]
+cedar-policy = "=4.12.0"
+cedar-policy-symcc = "=0.6.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "process", "io-util"] }
+
+[profile.release]
+debug = false

@@ -1,0 +1,80 @@
+import Lesson from "../../layouts/Lesson.astro";
+import EvidenceBanner from "../../components/EvidenceBanner.astro";
+import Label from "../../components/Label.astro";
+import Run from "../../components/Run.astro";
+import Analysis from "../../components/Analysis.astro";
+import data from "../../data/chapter0.json";
+
+<Lesson title="0. An agent inside a boundary">
+
+# 0. The examples pass. Did the agent gain permission?
+
+The model's output is untrusted: it can be wrong, it can be steered by content it reads, and it changes between versions. The policy and the boundary are what we trust, and this course is about making that trust precise, observable, and provable where proof applies.
+
+**The task.** A research assistant reads `workspace/measurements.csv`, fetches reference data with `GET /reference` from `reference.fixture` through the proxy, and writes `workspace/results/report.md`.
+
+<EvidenceBanner label={data.label} />
+
+## Predict
+
+<details>
+<summary>Will the agent's GET succeed? Yes / no / depends on the policy.</summary>
+
+It depends on the policy. Under P0 the request is <Label term="allowed" /> because the permit `get-reference` matches a GET to `/reference`. The tempting answer is "yes, it is the agent's task". A task says what the agent should try; it grants nothing.
+
+</details>
+
+## Run under P0
+
+<Run run={data.run_p0} title="The scripted agent under P0" />
+
+<details><summary>Policy P0</summary><pre>{data.policies.P0}</pre></details>
+
+## Intervene: broaden one predicate
+
+P1 changes one thing: `get-reference` now accepts GET or POST. The endpoint, the path, and the connection policy stay the same.
+
+<Run run={data.run_p1} title="The same agent, unchanged, under P1" />
+
+The original example still passes.
+
+## Verify
+
+<details>
+<summary>After broadening to GET-or-POST, did permission expand? No, the tests pass / yes / cannot tell from tests.</summary>
+
+Yes. The tests only tried GET, so they could not tell. The solver searched every request in the domain and returned the one the tests never tried.
+
+</details>
+
+<Analysis result={data.verify} title="No permission expansion, P0 → P1" />
+
+## Inspect
+
+The solver's witness becomes a real request, and that request is sent through the ordinary runtime under each policy.
+
+<Run run={data.inspect.P0} title="The distinguishing request under P0" />
+<Run run={data.inspect.P1} title="The distinguishing request under P1" />
+
+## Repair
+
+Restore P0 and check both properties: that permission did not expand, and that the task still works.
+
+<Analysis result={data.repair} title="After the repair: no permission expansion, P1 → P0" />
+
+The task check for `GET /reference` under P0: <Label term={data.task} />.
+
+## Explanation
+
+The agent proposes; the policy decides. Tests sample a domain; the solver searches it.
+
+## Transfer
+
+<details>
+<summary>What did the UNSAT result say about file writes?</summary>
+
+Nothing. It is about HttpRequest requests in the domain it names. File writes are a different domain and need a different check.
+
+</details>
+
+</Lesson>

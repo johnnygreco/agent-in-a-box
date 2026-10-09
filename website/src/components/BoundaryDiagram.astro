@@ -1,0 +1,32 @@
+---
+// The agent and the four layers. A layer is highlighted when an event in this
+// run came from it. The list below the figure is the same data as text.
+const { events, testBackend } = Astro.props;
+const layers = [
+  { key: "kernel", name: "Kernel profile", note: testBackend ? "not installed (test backend)" : "" },
+  { key: "proxy", name: "Proxy and bridge", note: "" },
+  { key: "cedar", name: "Cedar", note: "" },
+  { key: "solver", name: "Solver", note: "" },
+];
+const used = new Set(events.flatMap((e) => e.layers));
+const touches = (key) => events.filter((e) => e.layers.includes(key)).length;
+const layerName = { agent: "Agent", kernel: "Kernel profile", proxy: "Proxy", cedar: "Cedar (via proxy)", solver: "Solver", fixture: "Fixture service" };
+---
+<figure>
+  <svg viewBox="0 0 640 150" role="img" aria-label="The agent and four layers; highlighted layers produced events in this run">
+    <g class={`layer ${used.has("agent") ? "active" : ""}`}>
+      <rect x="4" y="40" width="96" height="60" rx="4" /><text x="52" y="74" text-anchor="middle">Agent</text>
+    </g>
+    {layers.map((layer, i) => (
+      <g class={`layer ${used.has(layer.key) ? "active" : ""}`}>
+        <rect x={120 + i * 128} y="40" width="116" height="60" rx="4" />
+        <text x={178 + i * 128} y="68" text-anchor="middle">{layer.name}</text>
+        <text x={178 + i * 128} y="86" text-anchor="middle">{layer.note || `${touches(layer.key)} event(s)`}</text>
+      </g>
+    ))}
+  </svg>
+  <figcaption>Events in order, positioned by the layer that produced them:</figcaption>
+  <ol>
+    {events.map((e) => (<li><span class="muted">{layerName[e.layer] ?? e.layer} ({e.provenance}):</span> {e.text}</li>))}
+  </ol>
+</figure>

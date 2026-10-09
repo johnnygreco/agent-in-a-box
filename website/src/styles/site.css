@@ -1,0 +1,35 @@
+:root {
+  --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5f5d57; --rule: #dedbd2; --panel: #f1efe8;
+  --accent: #2c5d8a; --allowed: #1f6b3a; --refused: #9a3412; --unknown: #6b5b00;
+  --active: #dbe7f3;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.55;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151514; --fg: #ebe9e3; --muted: #a8a59c; --rule: #3a3935; --panel: #22211f;
+          --accent: #8ab4dd; --allowed: #7fcf98; --refused: #f0a37b; --unknown: #e3cf6a;
+          --active: #23384d; }
+}
+body { background: var(--bg); color: var(--fg); margin: 0; }
+main, header, footer { max-width: 44rem; margin: 0 auto; padding: 0 1rem; }
+header { padding-top: 1rem; border-bottom: 1px solid var(--rule); }
+header a { color: var(--accent); margin-right: 1rem; }
+h1 { font-size: 1.7rem; line-height: 1.25; }
+h2 { font-size: 1.25rem; margin-top: 2rem; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88rem; }
+pre { background: var(--panel); padding: 0.75rem; overflow-x: auto; border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.92rem; }
+th, td { border-bottom: 1px solid var(--rule); padding: 0.3rem 0.5rem; text-align: left; vertical-align: top; }
+caption { text-align: left; color: var(--muted); font-size: 0.9rem; padding-bottom: 0.25rem; }
+details { background: var(--panel); padding: 0.5rem 0.75rem; border-radius: 4px; margin: 0.75rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+.banner { border: 2px solid var(--refused); padding: 0.6rem 0.8rem; margin: 1rem 0; border-radius: 4px; }
+.label { font-weight: 600; text-decoration: underline dotted; color: inherit; }
+.label[data-term="allowed"], .label[data-term="intended task preserved"] { color: var(--allowed); }
+.label[data-term="refused"], .label[data-term="denied"], .label[data-term="blocked"] { color: var(--refused); }
+.label[data-term="no conclusion"] { color: var(--unknown); }
+figure { margin: 1rem 0; }
+figcaption { color: var(--muted); font-size: 0.9rem; }
+svg text { fill: var(--fg); font-size: 12px; }
+svg .layer rect { fill: var(--panel); stroke: var(--rule); }
+svg .layer.active rect { fill: var(--active); stroke: var(--accent); stroke-width: 2; }
+.muted { color: var(--muted); }

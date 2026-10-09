@@ -1,0 +1,6 @@
+{
+  "description": "Reference values served at GET /reference by the fixture service.",
+  "status": 200,
+  "content_type": "text/csv",
+  "body": "quantity,reference,unit\ntemperature_c,21.0,C\npressure_kpa,101.3,kPa\n"
+}

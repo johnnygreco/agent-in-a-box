@@ -1,0 +1,21 @@
+# Local toolchain: pinned binaries installed by tooling/bootstrap.sh
+.toolchain/
+native/*/target/
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+# Run state and local outputs
+runs/
+.agent-in-a-box/
+# Web
+website/node_modules/
+website/dist/
+website/.astro/
+# Website: generated development data (from test-backend bundles; never committed)
+website/src/data/*.json
+
+# Local working notes; never committed
+inspiration/

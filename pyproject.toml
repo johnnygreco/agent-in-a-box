@@ -1,0 +1,52 @@
+[project]
+name = "agent-in-a-box"
+version = "0.0.1"
+description = "Teach developers to sandbox an agent and to enforce and analyze its permissions with Cedar."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml==6.0.3",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
+    "httpx==0.28.1",
+    "mitmproxy==12.2.3",
+    "cedarpy==4.12.1",
+]
+
+[project.optional-dependencies]
+notebooks = ["marimo==0.25.1"]
+
+[project.scripts]
+agent-in-a-box = "agent_in_a_box.experiments.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.10",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "agent_in_a_box"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "toolchain: needs the pinned Cedar bridge and cvc5 from tooling/bootstrap.sh",
+    "native: needs a native enforcement backend on its own platform",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "RUF"]
+# SIM108 prefers conditional expressions to if/else blocks; plain blocks read better here.
+ignore = ["RUF001", "RUF002", "RUF003", "SIM108"]

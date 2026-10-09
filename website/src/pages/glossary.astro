@@ -1,0 +1,14 @@
+---
+import Lesson from "../layouts/Lesson.astro";
+import glossary from "../data/glossary.json";
+---
+<Lesson title="Glossary">
+  <h1>Glossary of claim words</h1>
+  <p>Every result label on this site is one of these terms. Each names the component that makes the claim and the evidence behind it.</p>
+  <table>
+    <thead><tr><th>Term</th><th>Means</th><th>Claimed by</th><th>Evidence</th></tr></thead>
+    <tbody>
+      {glossary.map((t) => (<tr id={t.term.replaceAll(" ", "-")}><td><strong>{t.term}</strong></td><td>{t.means}</td><td>{t.claimed_by}</td><td>{t.evidence}</td></tr>))}
+    </tbody>
+  </table>
+</Lesson>

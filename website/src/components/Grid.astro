@@ -1,0 +1,11 @@
+---
+import Label from "./Label.astro";
+const { rows, policies } = Astro.props;
+---
+<table>
+  <caption>A bounded method × path grid. This is testing: it covers only the cells shown.</caption>
+  <thead><tr><th>Method</th><th>Path</th>{policies.map((p) => <th>{p}</th>)}</tr></thead>
+  <tbody>
+    {rows.map((row) => (<tr><td><code>{row.method}</code></td><td><code>{row.path}</code></td>{policies.map((p) => <td><Label term={row[p]} /></td>)}</tr>))}
+  </tbody>
+</table>

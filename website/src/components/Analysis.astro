@@ -1,0 +1,20 @@
+---
+import Label from "./Label.astro";
+const { result, title } = Astro.props;
+---
+<section>
+  <h3>{title}</h3>
+  <p>Search for <code>x</code> such that <code>{result.domain.name}(x) ∧ Allow({result.new}, x) ∧ ¬Allow({result.old}, x)</code>.
+    Solver status: <strong>{result.status.toUpperCase()}</strong>.
+    Result: {result.labels.map((l, i) => (<>{i > 0 && " and "}<Label term={l} /></>))}.</p>
+  {result.witness && (
+    <p>Witness: <code>{result.witness.context.method} {result.witness.context.path}</code> on <code>{result.witness.resource.id}</code>.
+      Replayed: {result.replay.map((r, i) => (<>{i > 0 && ", "}{r.policy} <Label term={r.decision} /></>))}.</p>
+  )}
+  {result.error && <p class="muted">{result.error}</p>}
+  <details><summary>Domain and raw witness</summary>
+    <p>{result.domain.description}</p>
+    {result.domain.condition && <p>Condition: <code>{result.domain.condition}</code></p>}
+    {result.witness_text ? <pre>{result.witness_text}</pre> : <p>No witness.</p>}
+  </details>
+</section>

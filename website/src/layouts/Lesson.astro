@@ -1,0 +1,18 @@
+---
+import "../styles/site.css";
+const { title } = Astro.props;
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Agent in a Box (development)</title>
+  </head>
+  <body>
+    <header>
+      <a href="/">Agent in a Box</a><a href="/chapters/0/">Chapter 0</a><a href="/chapters/5/">Chapter 5</a><a href="/glossary/">Glossary</a>
+    </header>
+    <main><slot /></main>
+    <footer><p class="muted">Development scaffold, Milestone 0. Not published.</p></footer>
+  </body>
+</html>

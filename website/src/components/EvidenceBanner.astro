@@ -1,0 +1,13 @@
+---
+// What the evidence on this page is. Shown before any result.
+const { label } = Astro.props;
+---
+<div class="banner" role="note">
+  <strong>{label.viewed_as === "recorded" ? "Recorded evidence" : "Evidence"}</strong> from bundle
+  <code>{label.bundle_id.slice(0, 12)}</code> ({label.created}). Enforcement:
+  <strong>{label.enforcement.join(", ")}</strong>.
+  {label.test_backend && (
+    <span> These runs used the test backend: nothing was contained, and no kernel profile was
+    installed. Only the proxy's checks applied. This page is a development build and is not shipped.</span>
+  )}
+</div>

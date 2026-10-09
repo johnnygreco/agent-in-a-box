@@ -1,0 +1,27 @@
+# Not yet run: the repository has no remote (STATUS.md, Questions for the owner).
+name: ci
+on: [push, pull_request]
+
+jobs:
+  platform-independent:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.24"
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: website/.nvmrc
+      - run: uv sync --locked --extra notebooks
+      - run: python3 tooling/bootstrap.py --with-cli
+      - run: npm ci
+        working-directory: website
+      - run: uv run ruff check src tests tooling
+      - run: uv run marimo check notebooks/*.py
+      # Native conformance probes skip until a backend's doctor passes on the runner.
+      - run: uv run pytest -ra

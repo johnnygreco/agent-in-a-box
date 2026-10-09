@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "decisions": [
+    "decisions/0002-cedar-toolchain-and-evaluator-binding.md",
+    "decisions/0003-development-toolchain.md"
+  ],
+  "cedar": {
+    "cedar_policy": "4.12.0",
+    "cedar_language": "4.5.0",
+    "cedar_policy_symcc": "0.6.0",
+    "crates_io_sha256": {
+      "cedar-policy 4.12.0": "f73547a0114dff845fcb8d4877548a665fb8ff949a30cb0963444d6c30ffd962",
+      "cedar-policy-symcc 0.6.0": "57e98e0e0a195f5d3e189945b7bf6f129ff64586b4778f00d797c4c5864bf5f0"
+    }
+  },
+  "cedarpy": {
+    "version": "4.12.1",
+    "bundled_cedar_policy": "4.12.0",
+    "license": "Apache-2.0",
+    "repository": "https://github.com/k9securityio/cedar-py",
+    "tag": "v4.12.1",
+    "commit": "1a8a2750734119277d44e3d0a65d74263fbd2ab9",
+    "sdist_sha256": "357002b436d06ad00cd24c1dc27287933af9c45af0541b0cd9d52036cccfe8c2",
+    "sdist_cargo_lock_sha256": "36a484d9ad461f2e4e3a550a8fa35d43c696682ca6798ad88c6418b692022397",
+    "wheel_hashes": "uv.lock"
+  },
+  "bridge": {
+    "name": "agent-in-a-box-cedar",
+    "version": "0.1.0",
+    "source": "native/cedar-bridge",
+    "license": "Apache-2.0"
+  },
+  "cedar_cli": {
+    "crate": "cedar-policy-cli",
+    "version": "4.12.0",
+    "features": [
+      "analyze"
+    ],
+    "crates_io_sha256": "7fd56e71cfb7bad516acc36499a54fa1dac39e411127f2f58f1dd8f023a69b8a",
+    "role": "independent oracle in tests only; not on any runtime path"
+  },
+  "cvc5": {
+    "version": "1.3.1",
+    "license": "BSD-3-Clause (non-GPL static build)",
+    "release": "https://github.com/cvc5/cvc5/releases/tag/cvc5-1.3.1",
+    "assets": {
+      "linux-x86_64": {
+        "url": "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-Linux-x86_64-static.zip",
+        "sha256": "1a1cda20d2df4938fa4944a69f33ddc9172e319ece0eed0aa09c4d7abede3ed1",
+        "member": "cvc5-Linux-x86_64-static/bin/cvc5",
+        "binary_sha256": "3ac157cf769c8fbaafe72e16179f062950c55a0537efb2bd15d5bc4d6793b16b"
+      },
+      "macos-arm64": {
+        "url": "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-macOS-arm64-static.zip",
+        "sha256": "a0e7f5b03b1bc4284fbfff7cdfb08c704801701cf7ece83a13f8a505e7581215",
+        "member": "cvc5-macOS-arm64-static/bin/cvc5",
+        "binary_sha256": null
+      }
+    }
+  },
+  "rust": {
+    "minimum": "1.89",
+    "used_for_m0": "1.95.0"
+  }
+}

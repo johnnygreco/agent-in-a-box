@@ -1,0 +1,6 @@
+{
+  "description": "No-data variant (chapter 4): /reference answers 404, so a request can be allowed by policy and still fail at the application.",
+  "status": 404,
+  "content_type": "text/plain",
+  "body": "no reference data\n"
+}
