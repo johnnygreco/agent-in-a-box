@@ -1,10 +1,12 @@
 """Start and stop the per-run proxy: a separate, supervisor-managed process.
 
-Two secrets are made here for every run (decisions/0015). The credential goes
-into the workload's HTTP_PROXY URL; the proxy answers 407 to a request that
-does not carry it before anything is decided or recorded, so no other process
-on this host can put a request into a run's evidence. The lab's stamp goes
-onto every request the proxy forwards; the fixture answers nothing else.
+Two secrets are made for every run (decisions/0015). The credential goes into
+the workload's HTTP_PROXY URL; the proxy answers 407 to a request that does
+not carry it before anything is decided or recorded. The lab's stamp goes onto
+every request the proxy forwards; the fixture answers nothing else. So neither
+another user's process nor the natively contained workload can put a request
+into a run's evidence. The developer's own processes could, as they could edit
+the evidence files; the test double's workload is such a process.
 """
 
 from __future__ import annotations
@@ -13,14 +15,26 @@ import json
 import secrets
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from agent_in_a_box.contracts import RunSpec
-from agent_in_a_box.network.proxy import Lab
+from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.policy.compiler import CompiledPolicy
 
 READY_TIMEOUT_S = 20.0
+
+
+@dataclass(frozen=True)
+class Lab:
+    """The lab's side of one run's data plane: its routes, which are nonsecret and
+    recorded, and the stamp the proxy puts on every request it forwards, which the
+    fixture requires. The stamp is held by the supervisor's processes and the
+    fixture, never by the workload (decisions/0015)."""
+
+    routes: Mapping[str, Route]
+    stamp: str
 
 
 class DataPlaneError(RuntimeError):

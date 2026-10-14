@@ -163,8 +163,8 @@ The scripted model adapter follows this table. It ships beside the lesson and is
 | Prediction | For each of four probes, which layer decides: kernel / proxy and Cedar / application / none. |
 | Intervention | Run the controlled probe set below in Bash and child Python. View results side by side with attribution. |
 | Expected observation | Kernel denials have no Cedar event; proxy refusals have a decision record; a 404 is neither. Children inherit the profile. |
-| Explanation | Two integrations: static filesystem grants enforced by the kernel, and per-request network decisions made by Cedar through the proxy. Evidence-of-absence checklist. What Seatbelt is and is not (not a VM, not a resource limiter, not a syscall tracer). Why not a container. The recorded uncontained contrast bundle. On the secondary Linux backend the same grant plan is rendered to Landlock rules and a network namespace; probe outcomes match, failure messages differ, and the capability notes say so. Two Linux-only probes show layers failing differently: the sandbox cannot create a user namespace, and a Landlock-restricted process that could would still be refused every mount; and PID 1 is the launcher, as confined as the workload, so there is no less-confined process to borrow. |
-| Source | Grant plan compiler, SBPL excerpt, launcher (budgets 250, 150). |
+| Explanation | Two integrations: static filesystem grants enforced by the kernel, and per-request network decisions made by Cedar through the proxy. Evidence-of-absence checklist. What Seatbelt is and is not (not a VM, not a resource limiter, not a syscall tracer). Why not a container. The recorded uncontained contrast bundle. On the secondary Linux backend the same grant plan is rendered to Landlock rules and a network namespace; probe outcomes match, failure messages differ, and the capability notes say so. Two Linux-only probes show layers failing differently: the sandbox cannot create a user namespace, and a Landlock-restricted process that could would still be refused every mount; and PID 1 is the launcher, under the same confinement as the workload, so the statement that every process in the sandbox is confined holds without exception. |
+| Source | Grant plan compiler, SBPL excerpt, launcher and its probes (budgets 250, 150, 100). |
 | Transfer | An operation failed with "permission denied." Name the three things you check. Reveal: proxy event present or absent, exit status and errno, matching profile rule. |
 | Disclosure | Full SBPL, grant plan, process accounting. |
 | Minutes | 25 |
@@ -260,7 +260,7 @@ The scripted model adapter follows this table. It ships beside the lesson and is
 | Question | Where in the code does each claim become true? |
 | Misconception | "The security is in the policy file." |
 | Assumes | Chapters 1 through 8. |
-| Intervention | Follow the source route: contracts → harness loop → request construction → evaluator → grant compiler → launcher → proxy decision → analyzer → evidence. Each excerpt is within its budget. Quiz at each stop: which function would you change to add a new action type? |
+| Intervention | Follow the source route: contracts → harness loop → request construction → evaluator → grant compiler → launcher and its probes → proxy decision → analyzer → evidence. Each excerpt is within its budget. Quiz at each stop: which function would you change to add a new action type? |
 | Expected observation | The route is readable in under an hour. |
 | Explanation | Authority is in the gateway and supervisor; the agent receives bounded data-plane access. Protocols describe functionality, not authority. |
 | Source | The whole route. |

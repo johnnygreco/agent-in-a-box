@@ -11,21 +11,28 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import secrets
 import socket
+import subprocess
+import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from agent_in_a_box.experiments.scenario import REFERENCE, fixture_service
-from agent_in_a_box.network.proxy import Lab
+from agent_in_a_box.network.fixture_service import STAMP_ENV, STAMP_HEADER
+from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.policy import schema
 from agent_in_a_box.policy.compiler import compile_policy
 from agent_in_a_box.policy.evaluator import CedarpyEvaluator
 from agent_in_a_box.supervisor import dataplane, runs
+from agent_in_a_box.supervisor.dataplane import Lab
 
 
 @pytest.fixture
@@ -79,6 +86,49 @@ def test_a_request_without_the_run_credential_is_neither_decided_nor_recorded(la
     status, _, _ = send(proxy, "GET", "http://reference.fixture/reference", credential=False)
     assert status == 407
     assert decisions_of(proxy) == [] and receipts_of(receipts) == []
+
+
+def test_the_proxy_forwards_one_stamp_and_no_proxy_credential(tmp_path):
+    """What the upstream sees: exactly the run's stamp, whatever the client sent under that
+    name, and never the Proxy-Authorization the client used to reach the proxy."""
+    seen: list[list[tuple[str, str]]] = []
+
+    class Upstream(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            seen.append([(name.lower(), value) for name, value in self.headers.items()])
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *arguments):
+            pass
+
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=upstream.serve_forever, daemon=True).start()
+    run = runs.create_run(tmp_path / "runs")
+    compiled = compile_policy(schema.load_variant("P0"), CedarpyEvaluator())
+    route = Route(REFERENCE, "127.0.0.1", upstream.server_address[1])
+    proxy = dataplane.start_proxy(run, compiled, Lab({REFERENCE: route}, "the-stamp"), "cedarpy")
+    try:
+        status, _, _ = send(proxy, "GET", "http://reference.fixture/reference",
+                            headers={STAMP_HEADER: "forged"})
+    finally:
+        dataplane.stop(proxy.process)
+        upstream.shutdown()
+    assert status == 200 and len(seen) == 1
+    assert [value for name, value in seen[0] if name == STAMP_HEADER.lower()] == ["the-stamp"]
+    assert "proxy-authorization" not in [name for name, _ in seen[0]]
+
+
+def test_the_fixture_refuses_to_start_without_a_stamp(tmp_path):
+    environment = {key: value for key, value in os.environ.items() if key != STAMP_ENV}
+    result = subprocess.run([sys.executable, "-m", "agent_in_a_box.network.fixture_service",
+                             "--receipts", str(tmp_path / "receipts.jsonl")],
+                            capture_output=True, text=True, timeout=30, env=environment)
+    assert result.returncode != 0 and STAMP_ENV in result.stderr
 
 
 def test_a_direct_request_to_the_fixture_without_the_stamp_leaves_no_receipt(lab):

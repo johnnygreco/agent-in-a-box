@@ -37,8 +37,8 @@ class Probe:
     name: str
     tool: str
     command: str
-    expected: str  # "succeeds", "blocked", "allowed", "refused", "allowed, then 404",
-    #               or "killed at teardown"
+    expected: str  # "succeeds", "blocked", "connection fails", "allowed", "refused",
+    #               "allowed, then 404", or "killed at teardown"
     method: str = "GET"
     variant: str = "default"
 
@@ -50,7 +50,8 @@ PROBES = [
     Probe("read protected supervisor state", "bash", "cat ../private/policy.cedar", "blocked"),
     Probe("GET through the proxy", "http", scenario.REFERENCE_URL, "allowed"),
     Probe("GET directly to the fixture host and port", "bash",
-          "curl -sS --fail --noproxy '*' --max-time 5 http://{direct}/reference", "blocked"),
+          "curl -sS --fail --noproxy '*' --max-time 5 http://{direct}/reference",
+          "connection fails"),
     Probe("POST through the proxy under P0", "http", scenario.REFERENCE_URL, "refused",
           method="POST"),
     Probe("GET through the proxy when the fixture has no data", "http", scenario.REFERENCE_URL,
@@ -105,6 +106,13 @@ def check_expected(record: RunRecord, probe: Probe) -> None:
         assert observation(record)["ok"] and decisions == []
     elif probe.expected == "blocked":
         assert not observation(record)["ok"]
+        assert decisions == [] and receipts == []
+    elif probe.expected == "connection fails":
+        # The table's "how we know" is a connection failure: curl exits 7 when it could not
+        # connect. Exit 22 would be an HTTP error from a server it reached, which since
+        # decisions/0015 is what the fixture answers to a request that bypassed the proxy.
+        assert not observation(record)["ok"]
+        assert observation(record)["detail"]["exit_status"] == 7
         assert decisions == [] and receipts == []
     elif probe.expected == "refused":
         assert [decision["label"] for decision in decisions] == ["refused"]

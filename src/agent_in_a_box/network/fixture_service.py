@@ -91,7 +91,8 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
                 self.wfile.write(data)
 
         def _handle(self) -> None:
-            if not hmac.compare_digest(self.headers.get(STAMP_HEADER, ""), stamp):
+            presented = self.headers.get(STAMP_HEADER, "").encode("latin-1")  # as parsed
+            if not hmac.compare_digest(presented, stamp.encode()):
                 # Not from this run's proxy: answer without reading or recording anything.
                 self.close_connection = True
                 self._send(403, "this fixture answers only the run's proxy\n")

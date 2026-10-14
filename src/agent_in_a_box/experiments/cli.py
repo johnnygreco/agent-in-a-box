@@ -91,6 +91,12 @@ def probe(args: argparse.Namespace) -> int:
         return 1
     by_kind = {kind: [plain(e.payload) for e in record.events if e.kind == kind]
                for kind in ("agent.observation", "proxy.decision", "fixture.receipt")}
+    if not by_kind["agent.observation"]:
+        kinds = [event.kind for event in record.events]
+        ending = "deadline_reached" if "deadline_reached" in kinds else kinds[-1]
+        print(f"no observation: the run ended with {ending} before the tool call returned "
+              f"(deadline {args.deadline:g}s); nothing to attribute")
+        return 2
     observation = by_kind["agent.observation"][0]["data"]["observation"]
     print(f"observation: {'ok' if observation['ok'] else 'not ok'}; "
           f"detail {json.dumps(observation['detail'])}")
@@ -109,25 +115,51 @@ def probe(args: argparse.Namespace) -> int:
 
 def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str:
     """Which layer the evidence points at, by chapter 4's checklist: a proxy decision
-    record, a fixture receipt, and the observation's own errno or exit status."""
+    record, a fixture receipt, and the observation's own errno or exit status.
+
+    The proxy's checks run in order: protocol, connect (Cedar), route, request
+    (Cedar). A refusal names the check that failed, so a route refusal is one
+    Cedar's connection decision allowed and the proxy's derived routes did not.
+    """
     refused = [decision for decision in decisions if decision["label"] == "refused"]
     if refused:
         last = refused[0]["checks"][-1]
         determining = last["decision"]["determining"] if last["decision"] else []
+        if last["name"] == "protocol":
+            return f"the proxy refused it before asking Cedar: {last['detail']}"
+        if last["name"] == "route":
+            return ("Cedar allowed the connection, but the proxy derived no route for that "
+                    f"endpoint: {last['detail']}")
         if determining:
-            return f"the proxy refused it: the determining policies are {', '.join(determining)}"
-        if last["decision"]:
-            return "the proxy refused it: no permit matched, so Cedar's default deny applied"
-        return f"the proxy refused it before asking Cedar: {last['detail']}"
-    if decisions and receipts:
+            return (f"the proxy refused it at the {last['name']} check: the determining "
+                    f"policies are {', '.join(determining)}")
+        return (f"the proxy refused it at the {last['name']} check: no permit matched, so "
+                "Cedar's default deny applied")
+    if decisions and not receipts:
+        return ("allowed by the proxy, but the fixture left no receipt: the forward failed; "
+                "read the observation's status or error")
+    if decisions:
         if observation["ok"]:
             return "allowed by the proxy and answered by the fixture"
         return (f"allowed by the proxy; the application answered "
                 f"{observation['detail'].get('status')}: nothing refused it")
     if observation["ok"]:
         return "no proxy event: the kernel permitted the operation"
+    if reached_the_fixture(observation):
+        return ("no proxy event: the request reached the fixture directly, which refused it "
+                "for lacking the proxy's stamp. Nothing stood between the workload and the "
+                "host network")
     return ("no proxy event and no receipt: the kernel stopped it, or the program itself "
             "failed; read the errno or exit status")
+
+
+def reached_the_fixture(observation: dict) -> bool:
+    """An HTTP 403 with no proxy decision can only be the fixture's own refusal of a
+    request that did not come through the proxy: the connection itself succeeded."""
+    detail = observation["detail"]
+    if detail.get("status") == 403 and not detail.get("refused_by"):
+        return True
+    return "403" in observation["output"] and detail.get("exit_status") == 22  # curl --fail
 
 
 def gateway(args: argparse.Namespace) -> int:
@@ -229,6 +261,8 @@ def bundle_command(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from agent_in_a_box.policy import schema
+
     parser = argparse.ArgumentParser(prog="agent-in-a-box", description=__doc__.splitlines()[0])
     parser.add_argument("--state-dir", default=str(DEFAULT_STATE),
                         help="where runs, commands, bundles, and gateway state live")
@@ -242,7 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     with_backend(commands.add_parser("doctor")).set_defaults(run=doctor)
     probing = with_backend(commands.add_parser(
         "probe", help="run one bash command or HTTP request as the workload, then attribute it"))
-    probing.add_argument("--policy", default="P0", help="policy variant (P0 to P6)")
+    probing.add_argument("--policy", default="P0", choices=schema.variant_names(),
+                         help="policy variant")
     probing.add_argument("--variant", default="default", help="fixture variant")
     probing.add_argument("--deadline", type=float, default=30.0)
     what = probing.add_mutually_exclusive_group(required=True)

@@ -24,7 +24,6 @@ from agent_in_a_box.contracts import (
     CedarEvaluator, ContainedProcess, LaunchRefused, PolicyBundle, RunRecord, RunSpec,
     SupervisorBackend, WorkloadSpec, plain,
 )
-from agent_in_a_box.network.proxy import Lab
 from agent_in_a_box.policy.compiler import PolicyRejected, compile_policy
 from agent_in_a_box.supervisor import dataplane, runs
 from agent_in_a_box.supervisor.evidence import EvidenceLog, Publish
@@ -39,7 +38,7 @@ class RunRequest:
     task: str
     bundle: PolicyBundle
     fixture_variant: str
-    lab: Lab
+    lab: dataplane.Lab
     receipts: Path | None = None
     deadline_s: float = 60.0
     probe: Mapping | None = None

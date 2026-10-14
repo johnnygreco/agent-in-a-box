@@ -19,8 +19,9 @@ from pathlib import Path
 from agent_in_a_box.composition import Runtime
 from agent_in_a_box.contracts import LaunchRefused, PolicyBundle, RunRecord, sha256_text
 from agent_in_a_box.network.fixture_service import STAMP_ENV, VARIANT_DIR
-from agent_in_a_box.network.proxy import Lab, Route
+from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.supervisor import lifecycle
+from agent_in_a_box.supervisor.dataplane import Lab
 from agent_in_a_box.supervisor.evidence import Publish
 from agent_in_a_box.supervisor.runs import WORKSPACE_FIXTURE
 

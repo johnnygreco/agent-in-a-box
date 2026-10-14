@@ -101,6 +101,9 @@ def namespaces() -> DoctorCheck:
         return DoctorCheck(name, True, "bwrap created all three, with user namespaces disabled "
                                        "inside")
     reason = trial.stderr.strip().splitlines()[-1] if trial.stderr.strip() else "no message"
+    if "Unknown option" in reason:
+        return DoctorCheck(name, False, "not tested: this bwrap does not accept an option the "
+                                        f"sandbox uses ({reason!r}); see the bubblewrap check")
     return DoctorCheck(name, False, f"{userns_restriction()}: bwrap said {reason!r}")
 
 

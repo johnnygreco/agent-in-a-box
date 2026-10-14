@@ -34,18 +34,6 @@ class Route:
 
 
 @dataclass(frozen=True)
-class Lab:
-    """The lab's side of one run's data plane: its routes, which are nonsecret and
-    recorded, and the stamp the proxy puts on every request it forwards. The
-    fixture answers only stamped requests, so a request that did not pass this
-    run's proxy leaves no receipt. Only the proxy and the fixture know the
-    stamp (decisions/0015)."""
-
-    routes: Mapping[str, Route]
-    stamp: str
-
-
-@dataclass(frozen=True)
 class Check:
     """One check's outcome. Cedar checks keep their full decision record."""
 

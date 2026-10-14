@@ -1,7 +1,7 @@
 # 0010. Linux launcher: bubblewrap, a Python launcher that applies Landlock, and a hand-built seccomp filter
 
 Date: 2026-10-09
-Status: accepted
+Status: accepted; amended by ADR 0014 (items 1, 3, 4, and 7: the launcher is now the namespace's init rather than becoming the workload, user namespaces are disabled inside, and the outside checks cover every process in the namespace)
 
 ## Context
 

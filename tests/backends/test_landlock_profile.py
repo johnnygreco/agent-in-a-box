@@ -9,13 +9,20 @@ from __future__ import annotations
 
 import errno
 import json
+import signal
 import struct
 import subprocess
+import sys
+import time
 
 import pytest
 
 from agent_in_a_box.contracts import Access, DoctorCheck, Extent, GrantPlan, PathGrant
-from agent_in_a_box.supervisor.backends.landlock import doctor, probes, profile, seccomp, syscalls
+from agent_in_a_box.supervisor.backends.landlock import (
+    doctor, inspect, probes, profile, seccomp, syscalls,
+)
+
+LAUNCHER = "agent_in_a_box.supervisor.backends.landlock.launcher"
 
 
 def grant(path, access, extent=Extent.SUBTREE, origin="policy"):
@@ -152,6 +159,53 @@ def test_doctor_names_a_missing_bubblewrap(monkeypatch):
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     assert doctor.bubblewrap() == DoctorCheck("bubblewrap", False, "bwrap is not installed")
     assert not doctor.namespaces().ok
+
+
+def test_the_init_check_tells_the_launcher_from_bubblewraps_own_reaper(monkeypatch):
+    """bubblewrap's reaper is a fork of bwrap, so its command line is bwrap's whole argv,
+    launcher module included; only a positional check tells the two apart (ADR 0014)."""
+    reaper = ["bwrap", "--unshare-user", "--unshare-pid", "--", "/py/bin/python3", "-m", LAUNCHER,
+              "--profile-fd", "5"]
+    monkeypatch.setattr(inspect, "command_line", lambda pid: reaper)
+    assert not inspect.init_checks(1, LAUNCHER)[0].passed
+    monkeypatch.setattr(inspect, "command_line", lambda pid: reaper[4:])
+    assert inspect.init_checks(1, LAUNCHER)[0].passed
+    monkeypatch.setattr(inspect, "command_line", lambda pid: [])
+    assert inspect.init_checks(1, LAUNCHER)[0].observed == "unreadable"
+
+
+def catches_sigterm(pid: int) -> bool:
+    fields = inspect.status_fields(pid)
+    return bool(int(fields.get("SigCgt", "0"), 16) & (1 << (signal.SIGTERM - 1)))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the init's signal path is checked on Linux")
+def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status(tmp_path):
+    """serve_as_init on its own, outside any sandbox: SIGTERM to the init reaches the
+    workload, and the init's exit status is the workload's (128 + 15)."""
+    code = (f"from {LAUNCHER} import serve_as_init, start_workload; import sys; "
+            "sys.exit(serve_as_init(start_workload(['/bin/sleep', '30'])))")
+    init = subprocess.Popen([sys.executable, "-c", code])
+    try:
+        deadline = time.monotonic() + 10
+        while not catches_sigterm(init.pid):
+            assert time.monotonic() < deadline, "the init never installed its handler"
+            time.sleep(0.05)
+        init.send_signal(signal.SIGTERM)
+        # The init returns only once it has reaped the workload, so 143 also means the
+        # sleep is gone.
+        assert init.wait(timeout=10) == 143
+    finally:
+        if init.poll() is None:
+            init.kill()
+
+
+def test_doctor_reports_an_option_an_old_bubblewrap_lacks(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 1, stdout="", stderr="bwrap: Unknown option --disable-userns\n"))
+    check = doctor.namespaces()
+    assert not check.ok and "not tested" in check.detail and "bubblewrap check" in check.detail
 
 
 def test_doctor_refuses_a_bubblewrap_without_disable_userns(monkeypatch):

@@ -26,6 +26,7 @@ that no process in the sandbox is less confined than the workload is
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import signal
@@ -66,21 +67,26 @@ def apply_landlock(rules: list[dict]) -> dict:
             "applied": applied, "skipped": skipped}
 
 
-def start_relay(proxy: dict) -> None:
-    """Listen on the proxy port on loopback, in a child process that forwards to the socket."""
+def start_relay(proxy: dict, report_fd: int) -> None:
+    """Listen on the proxy port on loopback, in a child process that forwards to the socket.
+
+    The child keeps the listener and nothing else of the supervisor's: it closes
+    its copy of the report pipe, so only this process writes the report.
+    """
     listener = socket.create_server(("127.0.0.1", proxy["port"]))
     if os.fork() == 0:
+        os.close(report_fd)
         relay.serve_inside(listener, proxy["socket"])
         os._exit(0)
     listener.close()
 
 
-def confine(profile: dict) -> dict:
+def confine(profile: dict, report_fd: int) -> dict:
     report: dict = {"ok": False}
     try:
         report["landlock"] = apply_landlock(profile["landlock"])
         report["probes"] = probes.run(profile["probes"])
-        start_relay(profile["proxy"])
+        start_relay(profile["proxy"], report_fd)
         report["ok"] = all(probe["passed"] for probe in report["probes"])
     except Exception as error:  # any failure refuses the run
         report["error"] = f"{type(error).__name__}: {error}"
@@ -99,17 +105,23 @@ def start_workload(command: list[str]) -> int:
 def serve_as_init(workload: int) -> int:
     """Reap every process that exits until the workload does; return its exit status.
 
-    PID 1 receives a signal from outside its namespace only if it handles it,
-    so the signals a supervisor might send are passed on to the workload. When
-    this process exits, the kernel ends everything left in the namespace.
+    PID 1 receives a signal from outside its namespace only if it handles it.
+    The supervisor stops a sandbox with SIGKILL, which needs no handler; the
+    handler is for an operator ending one by hand with SIGTERM or SIGINT, which
+    is passed on to the workload. When this process exits, the kernel ends
+    everything left in the namespace.
     """
+    def forward(number: int, _frame: object) -> None:
+        with contextlib.suppress(ProcessLookupError):  # the workload may be gone already
+            os.kill(workload, number)
+
     for number in FORWARDED_SIGNALS:
-        signal.signal(number, lambda received, _frame: os.kill(workload, received))
+        signal.signal(number, forward)
     while True:
         pid, status = os.wait()
         if pid == workload:
             code = os.waitstatus_to_exitcode(status)
-            return code if code >= 0 else 128 - code
+            return code if code >= 0 else 128 - code  # ended by signal N: 128 + N, as shells say
 
 
 def main() -> int:
@@ -121,7 +133,7 @@ def main() -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     with os.fdopen(args.profile_fd) as source:
         profile = json.load(source)
-    report = confine(profile)
+    report = confine(profile, args.report_fd)
     with os.fdopen(args.report_fd, "w") as sink:
         json.dump(report, sink)
     if not report["ok"] or not command:

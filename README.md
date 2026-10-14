@@ -47,7 +47,7 @@ uv run agent-in-a-box bundle show .agent-in-a-box/bundles/<file>.json
 uv run agent-in-a-box bundle replay .agent-in-a-box/bundles/<file>.json
 ```
 
-Probe the boundary yourself. One bash command or HTTP request runs as the workload under a policy, and the output says what each layer left behind: the observation's own exit status or errno, any proxy decision record with its determining policies, and any fixture receipt. In a command, `{direct}` becomes the fixture's own address, which only the proxy should be able to reach.
+Probe the boundary yourself. One bash command or HTTP request runs as the workload under a policy, and the output says what each layer left behind: the observation's own exit status or errno, any proxy decision record with its determining policies, and any fixture receipt. In a command, `{direct}` becomes the fixture's own address, which only the proxy should be able to reach. To send a request target with a dot segment and watch the proxy refuse it before Cedar, give curl `--path-as-is`; by default it resolves the segment itself.
 
 ```sh
 uv run agent-in-a-box probe --bash 'cat measurements.csv'

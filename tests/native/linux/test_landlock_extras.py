@@ -16,7 +16,9 @@ import os
 import socket
 import subprocess
 import sys
+import time
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -174,13 +176,14 @@ def test_every_process_in_the_sandbox_is_confined_its_init_included(runtime):
     passed = {probe["name"]: probe["passed"] for probe in containment["probes"]}
     assert passed["the namespace's init is the launcher"]
     assert passed["every process in the namespace has no-new-privileges and seccomp"]
-    assert "the namespace's init is the launcher, confined like the workload" in (
-        containment["notes"])
+    assert any(note.startswith("the namespace's init is the launcher, confined like the workload")
+               for note in containment["notes"])
 
 
 def test_a_user_namespace_cannot_be_created_inside(runtime):
     """decisions/0014: without one, nothing inside ever holds a capability, so the mount
-    view cannot be copied and rearranged. ENOSPC is how the kernel says the limit is zero."""
+    view cannot be copied and rearranged. ENOSPC is how the kernel says the namespace count
+    is already at its limit, which is where bubblewrap put it."""
     code = """
 import errno, json, os
 try:
@@ -192,6 +195,38 @@ print(json.dumps({"unshare": result}))
 """
     _, results = run_python(runtime, code)
     assert results == {"unshare": "ENOSPC"}
+
+
+def child_of(pid: int, timeout_s: float = 5.0) -> int:
+    """The host PID of a child of `pid`, once it exists."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        for entry in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                after_name = entry.read_text().rsplit(")", 1)[1].split()
+            except OSError:
+                continue
+            if int(after_name[1]) == pid:
+                return int(entry.parent.name)
+        time.sleep(0.05)
+    raise AssertionError(f"no child of {pid} appeared")
+
+
+def test_a_process_in_a_nested_pid_namespace_is_still_counted_as_a_member(runtime):
+    """inspect.namespace_members walks up through parents, so a process in a PID namespace
+    of its own is found. Made on the host with unshare, since nothing inside the sandbox
+    can make one (decisions/0014)."""
+    from agent_in_a_box.supervisor.backends.landlock import inspect
+
+    own_namespace = os.stat("/proc/self/ns/pid").st_ino
+    holder = subprocess.Popen(["unshare", "-Urpf", "--kill-child", "sleep", "60"])
+    try:
+        sleeper = child_of(holder.pid)
+        assert os.readlink(f"/proc/{sleeper}/ns/pid") != os.readlink("/proc/self/ns/pid")
+        assert sleeper in inspect.namespace_members(own_namespace)
+    finally:
+        holder.kill()
+        holder.wait()
 
 
 def test_landlock_refuses_mounts_even_from_a_nested_user_namespace(runtime):

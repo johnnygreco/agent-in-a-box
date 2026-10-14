@@ -65,8 +65,8 @@ class Sandbox:
 def read_json(descriptor: int, timeout_s: float) -> dict | None:
     """Read one JSON document from a pipe; None if none arrives within `timeout_s`.
 
-    The writer may keep the pipe open afterwards (bubblewrap holds its copies
-    until it exits), so this stops at the end of the document, not at EOF.
+    This stops at the end of the document rather than at EOF, so a copy of the
+    write end still held by some process in the sandbox could not stall it.
     """
     data = b""
     deadline = time.monotonic() + timeout_s
@@ -195,12 +195,14 @@ class LandlockBackend:
         probes += init_checks(sandbox.init_pid, LAUNCHER)
         probes += member_checks(sandbox.pid_namespace)
         contained = report.get("ok", False) and all(probe.passed for probe in probes)
-        notes = [f"Landlock ABI {report.get('landlock', {}).get('abi')}",
-                 "the namespace's init is the launcher, confined like the workload"]
+        notes = [f"Landlock ABI {report.get('landlock', {}).get('abi')}"]
         if contained:
+            notes.append("the namespace's init is the launcher, confined like the workload; its "
+                         "Landlock ruleset is known from its own report, not from /proc")
             assert sandbox.bwrap.stdin is not None
-            sandbox.bwrap.stdin.write(b"admit\n")
-            sandbox.bwrap.stdin.close()
+            with contextlib.suppress(BrokenPipeError):  # the sandbox may have ended already
+                sandbox.bwrap.stdin.write(b"admit\n")
+                sandbox.bwrap.stdin.close()
         return ContainmentReport("landlock", contained=contained, admit=contained,
                                  probes=tuple(probes), notes=tuple(notes))
 

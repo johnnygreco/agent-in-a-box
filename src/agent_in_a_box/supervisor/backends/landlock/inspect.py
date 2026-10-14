@@ -55,10 +55,14 @@ def command_line(pid: int) -> list[str]:
 
 
 def init_checks(init_pid: int, launcher: str) -> list[ProbeResult]:
-    """The namespace's init must be the launcher: a process as confined as the
-    workload, not an unconfined reaper the workload could borrow (decisions/0014)."""
+    """The namespace's init must be the launcher, so that PID 1 is under the same Landlock
+    ruleset as the workload (decisions/0014). bubblewrap's own reaper would carry the
+    launcher's name too, later in its argument list, so the check is positional: the
+    init was started as `<interpreter> -m <launcher module>`. Whether a process has a
+    Landlock domain is not visible in /proc; that rests on the launcher's own report."""
     arguments = command_line(init_pid)
-    observed = "launcher" if launcher in arguments else " ".join(arguments[:3]) or "unreadable"
+    started_as = arguments[1:3] == ["-m", launcher]
+    observed = "launcher" if started_as else " ".join(arguments[:3]) or "unreadable"
     return [ProbeResult("the namespace's init is the launcher", "launcher", observed,
                         observed == "launcher")]
 
@@ -66,9 +70,11 @@ def init_checks(init_pid: int, launcher: str) -> list[ProbeResult]:
 def member_checks(pid_namespace: int) -> list[ProbeResult]:
     """Every process in the namespace, init included, has no-new-privileges and seccomp on."""
     members = namespace_members(pid_namespace)
-    unconfined = [pid for pid in members
-                  if (status_fields(pid).get("NoNewPrivs"), status_fields(pid).get("Seccomp"))
-                  != ("1", "2")]
+    unconfined = []
+    for pid in members:
+        fields = status_fields(pid)
+        if (fields.get("NoNewPrivs"), fields.get("Seccomp")) != ("1", "2"):
+            unconfined.append(pid)
     if not members:
         observed = "no process found"
     elif unconfined:
@@ -82,9 +88,10 @@ def member_checks(pid_namespace: int) -> list[ProbeResult]:
 def in_namespace_tree(pid: int, pid_namespace: int) -> bool:
     """Whether `pid` is in the PID namespace with this inode, or in one nested inside it.
 
-    A process could try to hide in a namespace of its own; walking up through
-    the parents finds it anyway. The walk ends where the kernel will not show
-    the parent, which is at the supervisor's own namespace or above it.
+    With user namespaces disabled inside, nothing in the sandbox can make a PID
+    namespace of its own; the walk is defense in depth for a host where that
+    limit does not hold. It ends where the kernel will not show the parent,
+    which is at the supervisor's own namespace or above it.
     """
     try:
         descriptor = os.open(f"/proc/{pid}/ns/pid", os.O_RDONLY)
