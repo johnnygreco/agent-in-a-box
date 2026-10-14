@@ -4,13 +4,16 @@ It confines the workload with four kernel mechanisms, none of which needs
 root: bubblewrap's namespaces (user, PID, network, IPC, UTS) and filesystem
 view, a Landlock ruleset applied by the launcher before the workload starts,
 and a seccomp filter on socket families. All four are inherited by every
-process the workload starts, and none can be removed from inside.
+process the workload starts, and none can be removed from inside. The
+launcher is the PID namespace's init, so every process in the sandbox,
+init included, is under the same confinement (decisions/0014).
 
   prepare  render the GrantPlan to a profile in the run's private directory
   launch   start bubblewrap; the launcher inside confines itself, probes the
-           confinement, and waits as the workload for the admit signal
-  confirm  read the launcher's probe report, check the namespaces, no-new-
-           privileges, and seccomp from outside, and only then admit
+           confinement, and starts the workload, which waits for the admit signal
+  confirm  read the launcher's probe report, check from outside that every
+           process in the namespace is confined and that the init is the
+           launcher, and only then admit
   wait     wait for the workload to exit
   stop     stop the PID namespace's init, which ends every process in it,
            then verify that no process is left in that namespace
@@ -37,7 +40,7 @@ from agent_in_a_box.contracts import (
 )
 from agent_in_a_box.supervisor.backends.landlock import doctor, seccomp, syscalls
 from agent_in_a_box.supervisor.backends.landlock.inspect import (
-    namespace_checks, namespace_members, workload_checks,
+    init_checks, member_checks, namespace_checks, namespace_members,
 )
 from agent_in_a_box.supervisor.backends.landlock.profile import (
     PROFILE_FORMAT, PROXY_SOCKET_DIR, bwrap_arguments, render,
@@ -62,8 +65,8 @@ class Sandbox:
 def read_json(descriptor: int, timeout_s: float) -> dict | None:
     """Read one JSON document from a pipe; None if none arrives within `timeout_s`.
 
-    The writer may keep the pipe open afterwards (bubblewrap holds its copies
-    until it exits), so this stops at the end of the document, not at EOF.
+    This stops at the end of the document rather than at EOF, so it does not
+    depend on every copy of the write end having been closed.
     """
     data = b""
     deadline = time.monotonic() + timeout_s
@@ -109,7 +112,13 @@ class LandlockBackend:
                 "also lets the workload read that program's bytes.",
                 "The proxy is reached through a Unix socket mounted into the sandbox; the "
                 "sandbox's loopback is its own and reaches nothing else.",
-                "A PID namespace holds the workload's processes; stopping it ends all of them.",
+                "A PID namespace holds the workload's processes; stopping it ends all of them. "
+                "Its init is the launcher, under the same Landlock ruleset and seccomp filter "
+                "as the workload, so no process in the sandbox is less confined than the "
+                "workload.",
+                "The sandbox cannot create user namespaces of its own, so nothing inside can "
+                "gain capabilities over a copy of its mount tree; Landlock refuses mount "
+                "operations to a restricted process in any case.",
             ),
         )
 
@@ -183,13 +192,17 @@ class LandlockBackend:
         if "error" in report:
             probes.append(ProbeResult("launcher confined itself", "ok", report["error"], False))
         probes += namespace_checks(sandbox.init_pid)
-        probes += workload_checks(sandbox.init_pid)
+        probes += init_checks(sandbox.init_pid, LAUNCHER)
+        probes += member_checks(sandbox.pid_namespace)
         contained = report.get("ok", False) and all(probe.passed for probe in probes)
         notes = [f"Landlock ABI {report.get('landlock', {}).get('abi')}"]
         if contained:
+            notes.append("the namespace's init is the launcher, confined like the workload; its "
+                         "Landlock ruleset is known from its own report, not from /proc")
             assert sandbox.bwrap.stdin is not None
-            sandbox.bwrap.stdin.write(b"admit\n")
-            sandbox.bwrap.stdin.close()
+            with contextlib.suppress(BrokenPipeError):  # the sandbox may have ended already
+                sandbox.bwrap.stdin.write(b"admit\n")
+                sandbox.bwrap.stdin.close()
         return ContainmentReport("landlock", contained=contained, admit=contained,
                                  probes=tuple(probes), notes=tuple(notes))
 
@@ -220,6 +233,9 @@ class LandlockBackend:
             stopped=tuple(sorted(set(members) - set(survivors))),
             survivors=tuple(survivors),
             verified=not survivors,
-            limits=("every process the workload starts stays in its PID namespace; when the "
-                    "namespace's init stops, the kernel stops all of them",),
+            limits=("every process the workload starts stays in its PID namespace, or in one "
+                    "nested inside it; when the namespace's init stops, the kernel stops all "
+                    "of them",
+                    "the survivor scan keys on the namespace's inode number, which the kernel "
+                    "can reuse once the namespace is gone; it is read right after the stop",),
         )

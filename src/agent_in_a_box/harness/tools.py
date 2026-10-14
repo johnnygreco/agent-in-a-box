@@ -11,18 +11,26 @@ from __future__ import annotations
 import os
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
+from http.client import HTTPException  # not `import http`: the `http` tool below shadows it
 from pathlib import Path
 from typing import Any
 
 from agent_in_a_box.contracts import Observation
 
 MAX_OUTPUT = 8192
+BASH_TIMEOUT_S = 30.0  # the bash tool's own timer, unless the call names one
 
 
 def _bounded(text: str) -> str:
     return text if len(text) <= MAX_OUTPUT else text[:MAX_OUTPUT] + "\n[output truncated]"
+
+
+def _text(data: bytes | str | None) -> str:
+    """Captured output as text; a timed-out command's is still bytes."""
+    return data.decode(errors="replace") if isinstance(data, bytes) else (data or "")
 
 
 def _os_error(tool: str, exc: OSError, path: str) -> Observation:
@@ -76,13 +84,13 @@ def search(args: Mapping[str, Any]) -> Observation:
 def bash(args: Mapping[str, Any]) -> Observation:
     """Run a real shell command. Children inherit whatever restrictions apply."""
     command = str(args["command"])
-    timeout = float(args.get("timeout", 30))
+    timeout = float(args.get("timeout", BASH_TIMEOUT_S))
     try:
         proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True,
-                              timeout=timeout)
+                              errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "") + (exc.stderr or "")
-        return Observation("bash", False, _bounded(str(output)), {"timed_out": True})
+        output = _text(exc.stdout) + _text(exc.stderr)
+        return Observation("bash", False, _bounded(output), {"timed_out": True})
     except OSError as exc:  # the shell itself could not be started
         return _os_error("bash", exc, "bash")
     return Observation("bash", proc.returncode == 0, _bounded(proc.stdout + proc.stderr),
@@ -90,21 +98,29 @@ def bash(args: Mapping[str, Any]) -> Observation:
 
 
 def http(args: Mapping[str, Any]) -> Observation:
-    """An HTTP request through the configured proxy (HTTP_PROXY in the environment)."""
+    """An HTTP request through the configured proxy (HTTP_PROXY and HTTPS_PROXY in the
+    environment; an https request is refused at the proxy's CONNECT until Milestone 3)."""
     method = str(args["method"])
     url = str(args["url"])
     body = args.get("body")
-    request = urllib.request.Request(url, data=str(body).encode() if body is not None else None,
-                                     method=method)
     detail: dict[str, Any] = {"method": method, "url": url, "status": None, "refused_by": None}
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+            # Other schemes (file:, data:) would be served locally, past the proxy.
+            raise ValueError("only http and https URLs are routed through the proxy")
+        request = urllib.request.Request(url, method=method,
+                                         data=str(body).encode() if body is not None else None)
+        try:
+            response = urllib.request.urlopen(request, timeout=15)
+        except urllib.error.HTTPError as answer:  # an error status is still an answer
+            response = answer
+            detail["refused_by"] = answer.headers.get("X-Agent-In-A-Box-Refused")
+        with response:
             detail["status"] = response.status
             text = response.read().decode(errors="replace")
-    except urllib.error.HTTPError as exc:
-        detail.update(status=exc.code, refused_by=exc.headers.get("X-Agent-In-A-Box-Refused"))
-        text = exc.read().decode(errors="replace")
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, OSError, HTTPException, ValueError) as exc:
+        # A dead proxy, a refused tunnel, a malformed URL or method, a truncated answer:
+        # every one of them is an observation, never a crash of the harness.
         detail["error"] = str(getattr(exc, "reason", exc))
         return Observation("http", False, f"request failed: {detail['error']}", detail)
     return Observation("http", 200 <= detail["status"] < 300, _bounded(text), detail)

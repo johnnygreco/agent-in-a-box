@@ -6,6 +6,7 @@ refuses the run; nothing falls back to running the workload unconfined.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from agent_in_a_box.contracts import DoctorCheck
 from agent_in_a_box.supervisor.backends.landlock import seccomp, syscalls
 
 MINIMUM_ABI = 2
+# --disable-userns, which keeps the sandbox from creating user namespaces, arrived in 0.8.0.
+MINIMUM_BUBBLEWRAP = (0, 8, 0)
 
 
 def read(path: str) -> str | None:
@@ -46,12 +49,27 @@ def landlock_abi() -> DoctorCheck:
     return DoctorCheck("Landlock ABI", abi >= MINIMUM_ABI, detail)
 
 
+def bubblewrap_version(text: str) -> tuple[int, ...] | None:
+    """The version in `bwrap --version` output ("bubblewrap 0.9.0"), or None."""
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
 def bubblewrap() -> DoctorCheck:
     path = shutil.which("bwrap")
     if path is None:
         return DoctorCheck("bubblewrap", False, "bwrap is not installed")
     version = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10)
-    return DoctorCheck("bubblewrap", version.returncode == 0, f"{path}: {version.stdout.strip()}")
+    found = bubblewrap_version(version.stdout)
+    detail = f"{path}: {version.stdout.strip()}"
+    if version.returncode != 0 or found is None:
+        return DoctorCheck("bubblewrap", False, f"{detail}; its version could not be read")
+    if found < MINIMUM_BUBBLEWRAP:
+        minimum = ".".join(str(part) for part in MINIMUM_BUBBLEWRAP)
+        return DoctorCheck("bubblewrap", False,
+                           f"{detail}; at least {minimum} is required for --disable-userns, "
+                           "which keeps the sandbox from creating user namespaces")
+    return DoctorCheck("bubblewrap", True, detail)
 
 
 def userns_restriction() -> str:
@@ -66,17 +84,26 @@ def userns_restriction() -> str:
 
 
 def namespaces() -> DoctorCheck:
-    """Actually create the namespaces the sandbox uses; a sysctl alone can mislead."""
+    """Actually create the namespaces the sandbox uses; a sysctl alone can mislead.
+
+    The trial also disables user namespaces inside, as the profile does, and
+    bubblewrap itself checks that this worked before it runs the command.
+    """
     path = shutil.which("bwrap")
     name = "unprivileged user, PID, and network namespaces"
     if path is None:
         return DoctorCheck(name, False, "cannot test without bwrap")
     trial = subprocess.run(
-        [path, "--unshare-user", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/",
-         "--", "true"], capture_output=True, text=True, timeout=30)
+        [path, "--unshare-user", "--unshare-pid", "--unshare-net", "--disable-userns",
+         "--as-pid-1", "--ro-bind", "/", "/", "--", "true"],
+        capture_output=True, text=True, timeout=30)
     if trial.returncode == 0:
-        return DoctorCheck(name, True, "bwrap created all three")
+        return DoctorCheck(name, True, "bwrap created all three, with user namespaces disabled "
+                                       "inside")
     reason = trial.stderr.strip().splitlines()[-1] if trial.stderr.strip() else "no message"
+    if "Unknown option" in reason:
+        return DoctorCheck(name, False, "not tested: this bwrap does not accept an option the "
+                                        f"sandbox uses ({reason!r}); see the bubblewrap check")
     return DoctorCheck(name, False, f"{userns_restriction()}: bwrap said {reason!r}")
 
 

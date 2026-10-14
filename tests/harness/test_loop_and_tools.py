@@ -32,6 +32,29 @@ def test_failures_become_observations(tmp_path):
     assert not tools.http({"method": "GET", "url": "http://127.0.0.1:9/x"}).ok
 
 
+def test_a_timed_out_command_that_printed_is_still_an_observation():
+    timed_out = tools.bash({"command": "echo hi; sleep 5", "timeout": 0.5})
+    assert not timed_out.ok and timed_out.detail["timed_out"] and "hi" in timed_out.output
+    both = tools.bash({"command": "echo out; echo err >&2; sleep 5", "timeout": 0.5})
+    assert "out" in both.output and "err" in both.output and "b'" not in both.output
+    raw = tools.bash({"command": "printf '\\xff'; sleep 5", "timeout": 0.5})
+    assert raw.output == "\ufffd" and raw.detail["timed_out"]
+
+
+def test_output_that_is_not_utf8_is_replaced_not_a_crash():
+    assert tools.bash({"command": "printf '\\xff'"}).output == "\ufffd"
+
+
+def test_every_bad_url_is_an_observation():
+    """Each of these fails before any connection is attempted, so no proxy is needed."""
+    for url in ("not-a-url", "file:///etc/hostname", "data:text/plain,hello",
+                "http://[::1/x", "http://[example]/x", "http://127.0.0.1:9/a b"):
+        observation = tools.http({"method": "GET", "url": url})
+        assert not observation.ok and observation.detail["error"], url
+    bad_method = tools.http({"method": "GET\r\nX: y", "url": "http://127.0.0.1:9/x"})
+    assert not bad_method.ok and bad_method.detail["error"]
+
+
 def test_search_reports_matches(tmp_path):
     (tmp_path / "f.txt").write_text("alpha\nbeta\n")
     found = tools.search({"pattern": "beta", "path": str(tmp_path)})

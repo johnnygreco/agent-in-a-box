@@ -8,7 +8,7 @@ Template:
 # NNNN. Title
 
 Date: YYYY-MM-DD
-Status: accepted | superseded by NNNN
+Status: accepted | accepted; amended by NNNN (which items) | superseded by NNNN
 
 ## Context
 What question had to be answered and why now.

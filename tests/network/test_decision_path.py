@@ -24,9 +24,9 @@ def path_for(variant: str) -> DecisionPath:
 
 
 def request(method="GET", target="/reference", host="reference.fixture", host_header=None,
-            scheme="http", version="HTTP/1.1", upgrade=False, port=80):
+            scheme="http", version="HTTP/1.1", upgrade=False, port=80, chunked=False):
     return ParsedRequest(method, scheme, host, port, target,
-                         host if host_header is None else host_header, version, upgrade)
+                         host if host_header is None else host_header, version, upgrade, chunked)
 
 
 def checks(decision):
@@ -72,9 +72,15 @@ def test_p6_cedar_allows_the_connection_but_no_route_is_derived():
     request(version="HTTP/2.0"),
     request(method="BREW"),
     request(upgrade=True),
+    request(method="POST", chunked=True),  # a body of undeclared length
     request(target="reference"),
     request(target="/ref erence"),
     request(target="/réf"),
+    request(target="/reference/../collect"),     # a dot segment an upstream could resolve
+    request(target="/./reference"),
+    request(target="//reference"),               # an empty segment
+    request(target="/reference/%2e%2e/collect"),  # the same, percent-encoded
+    request(target="/%2Fcollect"),
     request(host_header="evil.example"),
     request(host="bad host"),
     request(port=0),
@@ -83,6 +89,19 @@ def test_protocol_refusals(bad):
     decision = path_for("P0").decide(bad)
     assert decision.refused_by == "protocol"
     assert [c.name for c in decision.checks] == ["protocol"]
+
+
+def test_a_trailing_slash_is_an_ordinary_spelling_that_cedar_sees():
+    """'/reference/' passes the protocol check and reaches Cedar as itself, which P0 denies."""
+    decision = path_for("P0").decide(request(target="/reference/"))
+    assert checks(decision)[0] == ("protocol", True)
+    assert decision.path == "/reference/" and decision.refused_by == "request"
+
+
+def test_the_record_keeps_the_target_as_sent_beside_the_path_cedar_saw():
+    decision = path_for("P0").decide(request(target="/reference?limit=1"))
+    assert decision.forwarded and decision.path == "/reference"
+    assert decision.checks[0].detail.endswith("target as sent: /reference?limit=1")
 
 
 def test_host_header_with_port_and_case_agrees():

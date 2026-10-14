@@ -2,7 +2,7 @@
 
 How one grant plan is translated into kernel enforcement on each supported backend, and where the resulting boundaries differ. macOS Seatbelt is the primary backend and the reference for the shared contract; the Linux backend conforms to it and discloses its gaps through capability flags and the doctor (PLAN.md, Platform decision; ADR 0001). Rows marked *to confirm* are authored expectations that the native probe suite must confirm before they are stated as fact anywhere else. Rows marked *confirmed* name the host where the probe suite passed. See [PLAN.md](../PLAN.md), Milestone 1 and Milestone 1-L, and [ADR 0010](../decisions/0010-linux-launcher.md) for the Linux design.
 
-Linux confirmations below were made on 2026-10-09 on Debian 12, kernel 6.1.0-50-cloud-amd64, x86-64, Landlock ABI 2, bubblewrap 0.8.0, by `tests/backends/conformance/` and `tests/native/linux/`.
+Linux confirmations below were made on 2026-10-09 on Debian 12, kernel 6.1.0-50-cloud-amd64, x86-64, Landlock ABI 2, bubblewrap 0.8.0, by `tests/backends/conformance/` and `tests/native/linux/`, and reconfirmed on 2026-10-14, after ADR 0014 made the launcher the sandbox's init, on Ubuntu 22.04 (kernel 6.8.0-1069-gcp, Landlock ABI 4, bubblewrap 0.9.0) and on the ubuntu-24.04 CI runner (bubblewrap 0.9.0, ABI 7). The rows that ADR 0014 added or changed have not yet run on Debian 12 (bubblewrap 0.8.0, ABI 2); STATUS.md lists that run as pending.
 
 ## Mechanism mapping
 
@@ -13,7 +13,9 @@ Linux confirmations below were made on 2026-10-09 on Debian 12, kernel 6.1.0-50-
 | Proxy-only network | `network-outbound` to the data-plane listener only | Network namespace with loopback only; the proxy reached through a mounted Unix socket and two byte relays | macOS: to confirm. Linux: confirmed (direct IPv4, IPv6, alternate loopback, outside addresses, UDP, and host abstract sockets all fail) |
 | Socket-family lockdown | SBPL network rules | seccomp filter: `socket`/`socketpair` only for AF_UNIX, AF_INET, AF_INET6; `io_uring_setup` refused | macOS: to confirm. Linux: confirmed (vsock, packet, netlink, and io_uring refused) |
 | Child inheritance | Automatic | Automatic for Landlock, seccomp, and namespaces | macOS: to confirm. Linux: confirmed (bash and child Python inherit) |
-| Process tree cleanup | Supervisor process accounting | PID namespace: stopping its init ends every process in it | macOS: to confirm. Linux: confirmed (`nohup` and a new-session descendant are both stopped; teardown finds no survivor in the namespace) |
+| Process tree cleanup | Supervisor process accounting | PID namespace: stopping its init ends every process in it. The init is the launcher, confined like the workload; members are found through the namespace tree, so a nested namespace hides nothing (ADR 0014) | macOS: to confirm. Linux: confirmed (`nohup` and a new-session descendant are both stopped; teardown finds no survivor in the namespace); the ADR 0014 part on Ubuntu 22.04 and the ubuntu-24.04 runner, Debian 12 pending |
+| Unconfined processes in the sandbox | None: one process tree under one profile | None: the init is the launcher, under the same Landlock ruleset and seccomp filter as the workload (ADR 0014) | macOS: to confirm. Linux: confirmed on Ubuntu 22.04 and the ubuntu-24.04 runner, Debian 12 pending (the outside checks find every process in the namespace with no-new-privileges and seccomp, and the init was started as the launcher) |
+| Nested user namespaces | Not applicable | Refused: bubblewrap limits the outer sandbox user namespace to one child and places the sandbox in it, so the count is at its limit (`unshare` answers ENOSPC); Landlock refuses mount operations to a restricted process regardless | Linux-only. Confirmed on Ubuntu 22.04 and the ubuntu-24.04 runner, Debian 12 pending (ENOSPC inside; outside the sandbox, a Landlock-restricted process in a fresh user namespace holds every capability and is still refused every `mount`) |
 | Process visibility | Not isolated | PID namespace hides host processes | Linux-only. Confirmed (`kill -0` of a host PID reports no such process) |
 | Truncate | Controlled by `file-write*` | Refused outside write grants by read-only mounts on every ABI; Landlock itself governs it from ABI 3 | macOS: to confirm. Linux: confirmed at ABI 2 (append and truncate of a read-only granted file fail) |
 | Mach IPC, sysctl, signals | SBPL rules | Not applicable; IPC and UTS namespaces; signals reach only the sandbox's own processes | Documented, not emulated |
@@ -29,7 +31,7 @@ Linux confirmations below were made on 2026-10-09 on Debian 12, kernel 6.1.0-50-
 | Metadata | Governed: `file-read-metadata` | Not governed by Landlock: a mounted path can be looked up without a grant; unmounted paths do not exist | Disclosed in capabilities |
 | A read grant on a directory | `literal` covers that directory's listing only | Landlock rules cover a path and everything beneath it, so subdirectories can be listed too | Disclosed in capabilities |
 | How a denial looks | EPERM | ENOENT (not mounted), EACCES (Landlock), EROFS (read-only mount), connection refused or network unreachable (network namespace) | Chapter 4 probe expectations differ in failure mode, not in outcome |
-| Reaching the proxy | Allowed TCP port on loopback | The sandbox's own loopback, relayed through a mounted Unix socket | Same `HTTP_PROXY` for the workload on both |
+| Reaching the proxy | Allowed TCP port on loopback | The sandbox's own loopback, relayed through a mounted Unix socket | Same proxy settings for the workload on both |
 | Availability | Always present; `sandbox-exec` deprecated | Needs Landlock in the LSM list (ABI 2 or later), unprivileged user namespaces, bubblewrap, and seccomp on x86-64 or arm64 | Doctor output |
 
 ## Expected failures in the shared conformance suite
@@ -41,5 +43,6 @@ None on Linux: every shared probe passes as authored (`EXPECTED_FAIL` in `tests/
 | Date | Host | Kernel | Landlock ABI | Unprivileged userns | bubblewrap | seccomp | Note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-09 | Development workspace (Debian 12) | 6.1.0-50-cloud-amd64 | 2 | Yes (user, net, pid, mount) | 0.8.0 | Enabled | Native suite passes; truncate controlled by read-only mounts |
+| 2026-10-14 | Review workspace (Ubuntu 22.04.5) | 6.8.0-1069-gcp | 4 | Yes (user, net, pid, mount) | 0.9.0, built from source; the packaged 0.6.1 is below the doctor's floor | Enabled | Native suite passes with the launcher as init (ADR 0014); not a supported host as shipped |
 
 No macOS host has been probed.

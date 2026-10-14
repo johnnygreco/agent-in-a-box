@@ -51,7 +51,7 @@ class ProxyDecision:
     endpoint: str | None
     path: str | None
     checks: tuple[Check, ...]
-    forwarded: bool
+    forwarded: bool  # the decision to forward; the proxy may still refuse the body's framing
     refused_by: str | None
     route: Route | None
 
@@ -83,7 +83,8 @@ class DecisionPath:
         checks: list[Check] = []
 
         problem = protocol_problem(parsed)
-        checks.append(Check("protocol", problem is None, problem or "plain HTTP/1.x request"))
+        checks.append(Check("protocol", problem is None,
+                            problem or f"plain HTTP/1.x request; target as sent: {parsed.target}"))
         if problem is not None:
             return self.refused(parsed, checks, endpoint=None, path=None)
         endpoint = requests.endpoint_id(parsed.host, parsed.port)

@@ -1,7 +1,7 @@
 # 0004. Per-run egress proxy: mitmproxy in regular mode, with our decision path in front of every forward
 
 Date: 2026-10-09
-Status: accepted
+Status: accepted; amended by ADR 0015 (the inventory of parsed fields gained the Transfer-Encoding header, and the proxy requires a run credential)
 
 ## Context
 
@@ -20,7 +20,7 @@ Evaluation on 2026-10-09 (Linux, test backend), all passing in `tests/network/`:
 - a CONNECT tunnel is refused;
 - the proxy refuses to start if its policy file no longer matches the hash the supervisor recorded.
 
-Custom protocol code: none. Our code reads fields mitmproxy already parsed (method, scheme, host, port, request target, Host header, HTTP version, Upgrade header).
+Custom protocol code: none. Our code reads fields mitmproxy already parsed (method, scheme, host, port, request target, Host header, HTTP version, Upgrade header, and, since ADR 0015, the Transfer-Encoding header).
 
 ## Alternatives rejected
 

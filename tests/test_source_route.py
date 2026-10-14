@@ -21,6 +21,7 @@ ROUTE = [
     ("evaluator adapter", "policy/evaluator.py", 100),
     ("policy subset compiler", "policy/compiler.py", 250),
     ("launcher", "supervisor/backends/landlock/launcher.py", 150),
+    ("launcher probes", "supervisor/backends/landlock/probes.py", 100),
     ("proxy decision path", "network/proxy.py", 150),
     ("analyzer adapter and witness replay", "policy/analyzer.py", 150),
     ("lifecycle", "supervisor/lifecycle.py", 150),

@@ -60,7 +60,9 @@ class Tail:
             data = source.read()
         complete = data[: data.rfind(b"\n") + 1]
         self.offset += len(complete)
-        return complete.decode(errors="replace").splitlines()
+        # One record per newline byte, which is how the writers frame them. str.splitlines
+        # would also break on U+2028, U+2029, and NEL, which a JSON string may carry.
+        return [piece.decode(errors="replace") for piece in complete.split(b"\n")[:-1]]
 
 
 class EvidenceLog:
@@ -107,7 +109,8 @@ class EvidenceLog:
 def agent_line(line: str, read_at: float) -> Pending:
     """An untrusted line from the harness, ordered by when the supervisor read it."""
     if len(line) > MAX_AGENT_LINE:
-        return Pending(read_at, "agent.oversized", "agent", "agent-reported", {"bytes": len(line)})
+        return Pending(read_at, "agent.oversized", "agent", "agent-reported",
+                       {"characters": len(line)})
     try:
         data = json.loads(line)
     except json.JSONDecodeError:

@@ -9,6 +9,7 @@ of the workspace fixture, so runs under different policies are comparable.
 from __future__ import annotations
 
 import contextlib
+import os
 import secrets
 import subprocess
 import sys
@@ -17,9 +18,10 @@ from pathlib import Path
 
 from agent_in_a_box.composition import Runtime
 from agent_in_a_box.contracts import LaunchRefused, PolicyBundle, RunRecord, sha256_text
-from agent_in_a_box.network.fixture_service import VARIANT_DIR
+from agent_in_a_box.network.fixture_service import STAMP_ENV, VARIANT_DIR
 from agent_in_a_box.network.proxy import Route
 from agent_in_a_box.supervisor import lifecycle
+from agent_in_a_box.supervisor.dataplane import Lab
 from agent_in_a_box.supervisor.evidence import Publish
 from agent_in_a_box.supervisor.runs import WORKSPACE_FIXTURE
 
@@ -31,10 +33,12 @@ REFERENCE_URL = "http://reference.fixture/reference"
 
 
 @contextlib.contextmanager
-def fixture_service(variant: str, receipts: Path) -> Iterator[Route]:
+def fixture_service(variant: str, receipts: Path, stamp: str) -> Iterator[Route]:
+    """A fixture that answers only requests carrying `stamp`, which the run's proxy adds."""
     process = subprocess.Popen(
         [sys.executable, "-m", "agent_in_a_box.network.fixture_service", "--variant", variant,
          "--receipts", str(receipts)], stdout=subprocess.PIPE, text=True,
+        env={**os.environ, STAMP_ENV: stamp},
     )
     try:
         assert process.stdout is not None
@@ -68,9 +72,10 @@ def run(runtime: Runtime, bundle: PolicyBundle, variant: str = "default",
     fixtures = runtime.config.runs_dir / "fixture-receipts"
     fixtures.mkdir(parents=True, exist_ok=True)
     receipts = fixtures / f"{secrets.token_hex(8)}.jsonl"
-    with fixture_service(variant, receipts) as route:
+    stamp = secrets.token_urlsafe(24)
+    with fixture_service(variant, receipts, stamp) as route:
         probe = probe(route) if callable(probe) else probe
-        request = lifecycle.RunRequest(TASK, bundle, variant, {REFERENCE: route}, receipts,
-                                       deadline_s, probe)
+        lab = Lab({REFERENCE: route}, stamp)
+        request = lifecycle.RunRequest(TASK, bundle, variant, lab, receipts, deadline_s, probe)
         return lifecycle.run(request, runtime.backend, runtime.evaluator,
                              runtime.config.evaluator, runtime.config.runs_dir, publish)

@@ -7,13 +7,23 @@ ADR 0010; the doctor's refusals by removing each prerequisite in turn.
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import signal
 import struct
+import subprocess
+import sys
+import time
 
 import pytest
 
 from agent_in_a_box.contracts import Access, DoctorCheck, Extent, GrantPlan, PathGrant
-from agent_in_a_box.supervisor.backends.landlock import doctor, profile, seccomp, syscalls
+from agent_in_a_box.supervisor.backends.landlock import (
+    doctor, inspect, probes, profile, seccomp, syscalls,
+)
+
+LAUNCHER = "agent_in_a_box.supervisor.backends.landlock.launcher"
 
 
 def grant(path, access, extent=Extent.SUBTREE, origin="policy"):
@@ -105,9 +115,28 @@ def test_rights_keep_read_and_write_separate():
 
 
 def test_protected_paths_become_absence_probes():
-    probes = json.loads(profile.render(PLAN))["probes"]
+    rendered = json.loads(profile.render(PLAN))["probes"]
     assert {"op": "stat", "target": "/r/private", "expect": "absent"}.items() <= next(
-        probe for probe in probes if probe["op"] == "stat").items()
+        probe for probe in rendered if probe["op"] == "stat").items()
+
+
+def test_the_launcher_is_init_and_no_user_namespace_can_be_made_inside():
+    """decisions/0014: both flags are part of the hashed profile."""
+    assert "--as-pid-1" in profile.NAMESPACES and "--disable-userns" in profile.NAMESPACES
+    assert "--unshare-user" in profile.NAMESPACES  # --disable-userns requires it
+    rendered = json.loads(profile.render(PLAN))
+    assert rendered["namespaces"] == list(profile.NAMESPACES)
+    unshare = next(probe for probe in rendered["probes"] if probe["op"] == "unshare")
+    assert unshare["expect"] == "refused"
+
+
+def test_probe_outcomes_name_the_kernels_answers():
+    assert probes.attempt({"op": "stat", "target": "/no/such/agent-in-a-box/path"}) == "absent"
+    assert probes.attempt({"op": "nonsense", "target": ""}) == "unknown probe 'nonsense'"
+    assert probes.OUTCOMES[errno.ENOSPC] == "refused" and probes.OUTCOMES[errno.EPERM] == "denied"
+    probe = {"name": "n", "op": "stat", "target": "/no/such/path", "expect": "absent"}
+    assert probes.run([probe]) == [
+        {"name": "n", "expected": "absent", "observed": "absent", "passed": True}]
 
 
 @pytest.mark.parametrize("bad", ["relative", "/a/../b", "/a\nb", "//a"])
@@ -131,6 +160,79 @@ def test_doctor_names_a_missing_bubblewrap(monkeypatch):
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     assert doctor.bubblewrap() == DoctorCheck("bubblewrap", False, "bwrap is not installed")
     assert not doctor.namespaces().ok
+
+
+def test_the_init_check_tells_the_launcher_from_bubblewraps_own_reaper(monkeypatch):
+    """bubblewrap's reaper is a fork of bwrap, so its command line is bwrap's whole argv,
+    launcher module included; only a positional check tells the two apart (ADR 0014)."""
+    reaper = ["bwrap", "--unshare-user", "--unshare-pid", "--", "/py/bin/python3", "-m", LAUNCHER,
+              "--profile-fd", "5"]
+    monkeypatch.setattr(inspect, "command_line", lambda pid: reaper)
+    assert not inspect.init_checks(1, LAUNCHER)[0].passed
+    monkeypatch.setattr(inspect, "command_line", lambda pid: reaper[4:])
+    assert inspect.init_checks(1, LAUNCHER)[0].passed
+    monkeypatch.setattr(inspect, "command_line", lambda pid: [])
+    assert inspect.init_checks(1, LAUNCHER)[0].observed == "unreadable"
+
+
+def catches_sigterm(pid: int) -> bool:
+    fields = inspect.status_fields(pid)
+    return bool(int(fields.get("SigCgt", "0"), 16) & (1 << (signal.SIGTERM - 1)))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the check tells a vanished process by /proc")
+def test_a_member_that_exited_during_the_check_is_not_counted_as_unconfined(monkeypatch):
+    confined = {"NoNewPrivs": "1", "Seccomp": "2"}
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [os.getpid(), 2**22 + 7])
+    monkeypatch.setattr(inspect, "status_fields",
+                        lambda pid: confined if pid == os.getpid() else {})
+    assert inspect.member_checks(1)[0].observed == "all"
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [2**22 + 7])
+    assert inspect.member_checks(1)[0].observed == "no process found"
+    # A live process whose status cannot be read is still counted, and counts against.
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [os.getpid()])
+    monkeypatch.setattr(inspect, "status_fields", lambda pid: {})
+    check = inspect.member_checks(1)[0]
+    assert check.observed == "1 of 1 without" and not check.passed
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the init's signal path is checked on Linux")
+def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status():
+    """serve_as_init on its own, outside any sandbox: SIGTERM to the init reaches the
+    workload, and the init's exit status is the workload's (128 + 15)."""
+    code = (f"from {LAUNCHER} import serve_as_init, start_workload; import sys; "
+            "sys.exit(serve_as_init(start_workload(['/bin/sleep', '30'])))")
+    init = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
+    try:
+        deadline = time.monotonic() + 10
+        while not catches_sigterm(init.pid):
+            assert time.monotonic() < deadline, "the init never installed its handler"
+            time.sleep(0.05)
+        init.send_signal(signal.SIGTERM)
+        # The init returns only once it has reaped the workload, so 143 also means the
+        # sleep is gone.
+        assert init.wait(timeout=10) == 143
+    finally:
+        if init.poll() is None:  # on failure, end the whole session, sleep included
+            os.killpg(init.pid, signal.SIGKILL)
+
+
+def test_doctor_reports_an_option_an_old_bubblewrap_lacks(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 1, stdout="", stderr="bwrap: Unknown option --disable-userns\n"))
+    check = doctor.namespaces()
+    assert not check.ok and "not tested" in check.detail and "bubblewrap check" in check.detail
+
+
+def test_doctor_refuses_a_bubblewrap_without_disable_userns(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout="bubblewrap 0.6.1\n", stderr=""))
+    check = doctor.bubblewrap()
+    assert not check.ok and "0.8.0" in check.detail and "--disable-userns" in check.detail
+    assert doctor.bubblewrap_version("bubblewrap 0.11.2") == (0, 11, 2)
+    assert doctor.bubblewrap_version("nonsense") is None
 
 
 def test_doctor_refuses_an_old_abi(monkeypatch):
