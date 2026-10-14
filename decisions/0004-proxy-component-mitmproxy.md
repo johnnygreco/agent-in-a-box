@@ -20,7 +20,7 @@ Evaluation on 2026-10-09 (Linux, test backend), all passing in `tests/network/`:
 - a CONNECT tunnel is refused;
 - the proxy refuses to start if its policy file no longer matches the hash the supervisor recorded.
 
-Custom protocol code: none. Our code reads fields mitmproxy already parsed (method, scheme, host, port, request target, Host header, HTTP version, Upgrade header).
+Custom protocol code: none. Our code reads fields mitmproxy already parsed (method, scheme, host, port, request target, Host header, HTTP version, Upgrade header, and, since ADR 0015, the Transfer-Encoding header).
 
 ## Alternatives rejected
 

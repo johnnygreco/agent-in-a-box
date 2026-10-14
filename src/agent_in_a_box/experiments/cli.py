@@ -4,7 +4,8 @@
     agent-in-a-box probe [--test-backend] [--policy P0] [--variant default] [--deadline S]
                          (--bash COMMAND | --http METHOD URL)
         exits 0 with an attributed observation, 1 when the run was refused, 2 for a
-        usage error, and 3 when the run ended before the tool call returned
+        usage error, and 3 when no observation was recorded (the run ended first, or
+        the supervisor refused the harness's observation line)
     agent-in-a-box gateway serve [--port N] [--test-backend]
     agent-in-a-box trailer|chapter5 [--test-backend] [--session NAME] [--gateway STATE_FILE]
     agent-in-a-box site-data --published [--bundles DIR] [--out DIR]
@@ -118,24 +119,30 @@ def probe(args: argparse.Namespace) -> int:
 
 
 def no_observation(record, deadline: float) -> str:
-    """Why there is nothing to attribute: how the run ended before the tool call returned,
-    and the workload's own stderr when it left any."""
+    """Why there is nothing to attribute. The lifecycle events decide how the run ended;
+    a line the supervisor refused is reported beside that, since the workload's own
+    output is agent-reported and must not override a lifecycle fact."""
     by_kind = {event.kind: plain(event.payload) for event in record.events}
-    if "agent.oversized" in by_kind:
-        ending = ("the tool call returned, but its observation line was longer than the "
-                  "supervisor accepts (agent.oversized)")
-    elif "agent.text" in by_kind:
-        ending = ("the tool call returned, but the harness wrote a line that was not a JSON "
-                  "event (agent.text)")
-    elif "deadline_reached" in by_kind:
+    refused_line = ("oversized" if "agent.oversized" in by_kind
+                    else "not a JSON event" if "agent.text" in by_kind else None)
+    if "deadline_reached" in by_kind:
         ending = f"ran out of time (deadline {deadline:g}s) before the tool call returned"
-    elif "workload_exited" in by_kind:
+    elif "workload_exited" not in by_kind:
+        ending = "the workload was stopped before the tool call returned"
+    elif by_kind["workload_exited"]["exit_status"] == 0 and refused_line:
+        ending = (f"the tool call returned, but the supervisor refused the harness's "
+                  f"observation line as {refused_line}")
+        refused_line = None
+    else:
         status = by_kind["workload_exited"]["exit_status"]
         how = f"ended by signal {-status}" if status < 0 else f"exited with status {status}"
+        if status > 128:
+            how += " (a status above 128 is usually 128 plus the number of a signal)"
         ending = f"the workload {how} before the tool call returned"
-    else:
-        ending = "the workload was stopped before the tool call returned"
     text = f"no observation: {ending}; nothing to attribute"
+    if refused_line:
+        text += ("; the harness's stdout also carried a line the supervisor refused as "
+                 f"{refused_line}")
     if "agent.stderr" in by_kind:
         tail = by_kind["agent.stderr"]["text"].strip().splitlines()[-8:]
         text += "\nthe workload's stderr ends with:\n" + "\n".join(f"  | {line}" for line in tail)
@@ -181,7 +188,7 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
     if observation["ok"]:
         return "no proxy event: the kernel permitted the operation"
     return ("no proxy event and no receipt: the kernel stopped it, or the program itself "
-            "failed; read the errno or exit status")
+            "failed; read the errno, exit status, or error")
 
 
 def application_answer(observation: dict) -> str:

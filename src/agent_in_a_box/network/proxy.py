@@ -51,7 +51,7 @@ class ProxyDecision:
     endpoint: str | None
     path: str | None
     checks: tuple[Check, ...]
-    forwarded: bool
+    forwarded: bool  # the decision to forward; the proxy may still refuse the body's framing
     refused_by: str | None
     route: Route | None
 

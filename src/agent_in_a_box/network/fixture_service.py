@@ -51,7 +51,7 @@ def load_variant(name: str) -> dict:
 
 
 class Receipts:
-    """The fixture's own log: one numbered line per request that reached the handler."""
+    """The fixture's own log: one numbered line per request the fixture accepted for reading."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -85,25 +85,24 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
             MAX_BODY is refused before any of it is read, with no receipt, and the
             connection closes so unread bytes cannot be taken for the next request.
             """
-            self.close_connection = True
             if "Transfer-Encoding" in self.headers:
-                self._send(411, "declare the body length with Content-Length\n")
-                return None
+                return self._refuse(411, "declare the body length with Content-Length\n")
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
-                self._send(400, "Content-Length is not a number\n")
-                return None
+                return self._refuse(400, "Content-Length is not a number\n")
             if length < 0:
-                self._send(400, "Content-Length is negative\n")
-                return None
+                return self._refuse(400, "Content-Length is negative\n")
             if length > MAX_BODY:
-                self._send(413, "body too large\n")
-                return None
-            self.close_connection = False
+                return self._refuse(413, "body too large\n")
             body = self.rfile.read(length) if length else b""
             receipts.append(self.command, self.path, self.headers.get("Host"), body)
             return body
+
+        def _refuse(self, status: int, body: str) -> None:
+            """Answer without reading the body, and close so unread bytes are not a request."""
+            self.close_connection = True
+            self._send(status, body)
 
         def _send(self, status: int, body: str, content_type: str = "text/plain") -> None:
             data = body.encode()
@@ -118,8 +117,7 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
             presented = self.headers.get(STAMP_HEADER, "").encode("latin-1")  # as parsed
             if not hmac.compare_digest(presented, stamp.encode()):
                 # Not from this run's proxy: answer without reading or recording anything.
-                self.close_connection = True
-                self._send(403, REFUSAL + "\n")
+                self._refuse(403, REFUSAL + "\n")
                 return
             body = self._receive()
             if body is None:

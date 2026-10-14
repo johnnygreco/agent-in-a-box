@@ -74,7 +74,7 @@ def test_a_run_that_ends_before_the_tool_call_returns_is_reported_not_crashed(tm
 
 
 @pytest.mark.parametrize("url", ["not-a-url", "http://reference.fixture/a b",
-                                 "file:///etc/hostname"])
+                                 "file:///etc/hostname", "http://[::1/x"])
 def test_a_bad_url_is_an_observation_not_a_harness_crash(tmp_path, url):
     result = probe(tmp_path, "--http", "GET", url)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -82,12 +82,22 @@ def test_a_bad_url_is_an_observation_not_a_harness_crash(tmp_path, url):
     assert "layer: no proxy event and no receipt" in result.stdout
 
 
-def test_a_workload_that_dies_is_reported_with_its_signal_and_stderr(tmp_path):
+def test_a_workload_that_dies_is_reported_with_its_signal(tmp_path):
+    """Under the test double the supervisor sees the signal itself; the native init reports
+    a signalled workload as 128 plus the signal, which the report explains in that case."""
     result = probe(tmp_path, "--bash", "kill -9 $PPID")
     assert result.returncode == 3, result.stdout + result.stderr
     assert "no observation: the workload ended by signal 9 before the tool call returned" in (
         result.stdout)
     assert "Traceback" not in result.stderr
+
+
+def test_an_https_url_is_refused_at_the_proxys_tunnel_with_a_recorded_decision(tmp_path):
+    result = probe(tmp_path, "--http", "GET", "https://reference.fixture/reference")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "refused at check 'protocol'" in result.stdout
+    assert "layer: the proxy refused it before asking Cedar: opaque CONNECT tunnels" in (
+        result.stdout)
 
 
 def test_an_unknown_policy_or_variant_name_is_refused_by_the_parser(tmp_path):

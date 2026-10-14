@@ -180,6 +180,7 @@ def catches_sigterm(pid: int) -> bool:
     return bool(int(fields.get("SigCgt", "0"), 16) & (1 << (signal.SIGTERM - 1)))
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="the check tells a vanished process by /proc")
 def test_a_member_that_exited_during_the_check_is_not_counted_as_unconfined(monkeypatch):
     confined = {"NoNewPrivs": "1", "Seccomp": "2"}
     monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [os.getpid(), 2**22 + 7])

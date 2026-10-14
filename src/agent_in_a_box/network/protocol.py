@@ -84,7 +84,8 @@ def protocol_problem(parsed: ParsedRequest) -> str | None:
     if parsed.upgrade:
         return "protocol upgrades (WebSocket and others) are not supported"
     if parsed.chunked:
-        return "a chunked request body is not supported; declare its length with Content-Length"
+        return ("a Transfer-Encoding header (a chunked body) is not supported; declare the "
+                "body's length with Content-Length")
     problem = target_problem(parsed.target)
     if problem is not None:
         return f"request target {parsed.target!r} {problem}"

@@ -132,6 +132,7 @@ async def serve(config: dict) -> None:
         listen_host="127.0.0.1", listen_port=config.get("listen_port", 0),
         confdir=config["confdir"], http2=False, websocket=False, rawtcp=False,
         proxyauth=f"run:{config['credential']}",
+        body_size_limit="1m",  # the fixture's own limit; the proxy reads bodies first
     )
     master.addons.add(Enforcer(master, decision_path, sink, stamp))
     await master.run()

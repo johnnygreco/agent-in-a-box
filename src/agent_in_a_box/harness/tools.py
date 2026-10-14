@@ -27,6 +27,11 @@ def _bounded(text: str) -> str:
     return text if len(text) <= MAX_OUTPUT else text[:MAX_OUTPUT] + "\n[output truncated]"
 
 
+def _text(data: bytes | str | None) -> str:
+    """Captured output as text; a timed-out command's is still bytes."""
+    return data.decode(errors="replace") if isinstance(data, bytes) else (data or "")
+
+
 def _os_error(tool: str, exc: OSError, path: str) -> Observation:
     return Observation(tool, False, f"{type(exc).__name__}: {exc.strerror}",
                        {"path": path, "errno": exc.errno})
@@ -83,8 +88,8 @@ def bash(args: Mapping[str, Any]) -> Observation:
         proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True,
                               errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "") + (exc.stderr or "")
-        return Observation("bash", False, _bounded(str(output)), {"timed_out": True})
+        output = _text(exc.stdout) + _text(exc.stderr)
+        return Observation("bash", False, _bounded(output), {"timed_out": True})
     except OSError as exc:  # the shell itself could not be started
         return _os_error("bash", exc, "bash")
     return Observation("bash", proc.returncode == 0, _bounded(proc.stdout + proc.stderr),
@@ -97,21 +102,23 @@ def http(args: Mapping[str, Any]) -> Observation:
     url = str(args["url"])
     body = args.get("body")
     detail: dict[str, Any] = {"method": method, "url": url, "status": None, "refused_by": None}
-    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        # Other schemes (file:, data:) would be served locally, bypassing the proxy.
-        detail["error"] = "only http and https URLs go through the proxy"
-        return Observation("http", False, f"request failed: {detail['error']}", detail)
     try:
+        if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+            # Other schemes (file:, data:) would be served locally, past the proxy.
+            raise ValueError("only http and https URLs are routed through the proxy")
         request = urllib.request.Request(url, method=method,
                                          data=str(body).encode() if body is not None else None)
-        with urllib.request.urlopen(request, timeout=15) as response:
+        try:
+            response = urllib.request.urlopen(request, timeout=15)
+        except urllib.error.HTTPError as answer:  # an error status is still an answer
+            response = answer
+            detail["refused_by"] = answer.headers.get("X-Agent-In-A-Box-Refused")
+        with response:
             detail["status"] = response.status
             text = response.read().decode(errors="replace")
-    except urllib.error.HTTPError as exc:
-        detail.update(status=exc.code, refused_by=exc.headers.get("X-Agent-In-A-Box-Refused"))
-        text = exc.read().decode(errors="replace")
     except (urllib.error.URLError, OSError, HTTPException, ValueError) as exc:
-        # A dead proxy, a malformed URL or method, or a broken response: all observations.
+        # A dead proxy, a refused tunnel, a malformed URL or method, a truncated answer:
+        # every one of them is an observation, never a crash of the harness.
         detail["error"] = str(getattr(exc, "reason", exc))
         return Observation("http", False, f"request failed: {detail['error']}", detail)
     return Observation("http", 200 <= detail["status"] < 300, _bounded(text), detail)

@@ -62,6 +62,10 @@ def workload(run: RunSpec, task: str, proxy_url: str, deadline_s: float = 60.0,
         "PYTHONNOUSERSITE": "1",
         "HTTP_PROXY": proxy,
         "http_proxy": proxy,
+        # https goes to the proxy as well: its CONNECT is refused there with a recorded
+        # decision (inspected HTTPS arrives in Milestone 3) rather than attempted directly.
+        "HTTPS_PROXY": proxy,
+        "https_proxy": proxy,
         "NO_PROXY": "",
         "no_proxy": "",
     }

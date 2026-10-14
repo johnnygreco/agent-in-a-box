@@ -7,7 +7,9 @@ receipt, and the observation's own status, errno, or exit status.
 
 from __future__ import annotations
 
-from agent_in_a_box.experiments.cli import layer
+from types import SimpleNamespace
+
+from agent_in_a_box.experiments.cli import layer, no_observation
 
 
 def decision(label, name, determining=(), cedar=True, detail="why"):
@@ -99,3 +101,29 @@ def test_a_407_with_no_decision_means_the_request_reached_the_proxy_without_cred
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():
     assert layer(NOT_OK, [], []).startswith("no proxy event and no receipt: the kernel stopped it")
+
+
+def record_of(*events):
+    return SimpleNamespace(events=[SimpleNamespace(kind=kind, payload=payload)
+                                   for kind, payload in events])
+
+
+def test_the_lifecycle_decides_how_a_run_ended_and_a_refused_line_is_reported_beside_it():
+    deadline_and_text = record_of(("agent.text", {"text": "garbage"}),
+                                  ("deadline_reached", {"deadline_s": 2}))
+    text = no_observation(deadline_and_text, 2)
+    assert text.startswith("no observation: ran out of time (deadline 2s)")
+    assert text.endswith("the supervisor refused as not a JSON event")
+    returned = record_of(("agent.oversized", {"bytes": 20000}),
+                         ("workload_exited", {"exit_status": 0}))
+    assert "the supervisor refused the harness's observation line as oversized" in (
+        no_observation(returned, 30))
+
+
+def test_a_signal_reads_as_a_signal_under_the_double_and_as_its_status_natively():
+    killed = record_of(("workload_exited", {"exit_status": -9}))
+    assert "the workload ended by signal 9" in no_observation(killed, 30)
+    native = record_of(("workload_exited", {"exit_status": 137}),
+                       ("agent.stderr", {"text": "Killed\n"}))
+    text = no_observation(native, 30)
+    assert "exited with status 137 (a status above 128" in text and "| Killed" in text

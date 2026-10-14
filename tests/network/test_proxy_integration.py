@@ -131,10 +131,18 @@ def test_the_fixture_refuses_to_start_without_a_stamp(tmp_path):
     assert result.returncode != 0 and STAMP_ENV in result.stderr
 
 
-def raw_request(route, request: bytes) -> bytes:
+def raw_request(route, request: bytes, until_eof: bool = False) -> bytes:
+    """One raw request; with `until_eof`, everything until the fixture closes the connection,
+    which a hang would turn into a socket timeout."""
     with socket.create_connection((route.host, route.port), timeout=10) as sock:
         sock.sendall(request)
-        return sock.recv(4096)
+        reply = sock.recv(4096)
+        while until_eof:
+            more = sock.recv(4096)
+            if not more:
+                return reply
+            reply += more
+        return reply
 
 
 def test_the_fixture_refuses_a_stamp_with_bytes_past_ascii_without_a_traceback(lab):
@@ -167,12 +175,23 @@ def test_the_fixture_refuses_undeclared_or_bad_body_lengths_before_reading(tmp_p
     stamped = (b"POST /collect HTTP/1.1\r\nHost: reference.fixture\r\n"
                b"X-Agent-In-A-Box-Stamp: known-stamp\r\n")
     with fixture_service("default", receipts, "known-stamp") as route:
-        chunked = raw_request(route, stamped + b"Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
-        negative = raw_request(route, stamped + b"Content-Length: -1\r\n\r\n")
-        not_a_number = raw_request(route, stamped + b"Content-Length: abc\r\n\r\n")
+        chunked = raw_request(route, stamped + b"Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+                              until_eof=True)
+        negative = raw_request(route, stamped + b"Content-Length: -1\r\n\r\n", until_eof=True)
+        not_a_number = raw_request(route, stamped + b"Content-Length: abc\r\n\r\n",
+                                   until_eof=True)
     assert chunked.startswith(b"HTTP/1.1 411")
     assert negative.startswith(b"HTTP/1.1 400") and not_a_number.startswith(b"HTTP/1.1 400")
     assert receipts_of(receipts) == []
+
+
+def test_the_fixture_honours_a_clients_connection_close_on_an_accepted_request(tmp_path):
+    receipts = tmp_path / "receipts.jsonl"
+    with fixture_service("default", receipts, "known-stamp") as route:
+        reply = raw_request(route, b"GET /reference HTTP/1.1\r\nHost: reference.fixture\r\n"
+                                   b"X-Agent-In-A-Box-Stamp: known-stamp\r\n"
+                                   b"Connection: close\r\n\r\n", until_eof=True)
+    assert reply.startswith(b"HTTP/1.1 200") and receipts_of(receipts) == [("GET", "/reference")]
 
 
 def test_the_fixture_refuses_an_oversize_body_before_reading_it(tmp_path):
@@ -182,7 +201,7 @@ def test_the_fixture_refuses_an_oversize_body_before_reading_it(tmp_path):
     with fixture_service("default", receipts, "known-stamp") as route:
         reply = raw_request(route, b"POST /collect HTTP/1.1\r\nHost: reference.fixture\r\n"
                                    b"X-Agent-In-A-Box-Stamp: known-stamp\r\n"
-                                   b"Content-Length: 2000000\r\n\r\nshort")
+                                   b"Content-Length: 2000000\r\n\r\nshort", until_eof=True)
     assert reply.startswith(b"HTTP/1.1 413") and receipts_of(receipts) == []
 
 
