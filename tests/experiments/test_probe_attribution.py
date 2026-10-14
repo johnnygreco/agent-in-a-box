@@ -115,9 +115,10 @@ def test_a_command_ended_by_the_bash_tools_timeout_is_named_as_such():
         "allowed by the proxy; the application answered, and the bash tool's own timeout (30 s) "
         "ended the command before it exited: nothing refused it")
     still_uploading = {"ok": False, "output": "", "detail": {"timed_out": True}}
-    assert layer(still_uploading, [ALLOWED], []).startswith(
+    assert layer(still_uploading, [ALLOWED], []) == (
         "allowed by the proxy, but the bash tool's own timeout (30 s) ended the command before "
-        "the fixture had read the request, unless the output above shows the proxy's own 413")
+        "the fixture had read the request, unless the output above shows the proxy's own 413 or "
+        "a failed forward first; no receipt was written either way")
 
 
 def test_an_answer_that_could_not_be_read_names_the_error_not_an_exit_status():

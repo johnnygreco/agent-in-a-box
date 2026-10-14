@@ -131,8 +131,8 @@ def no_observation(record, deadline: float, bash: bool = True) -> str:
     if "deadline_reached" in by_kind:
         ending = f"ran out of time (deadline {deadline:g}s) before the tool call returned"
         if bash and deadline <= BASH_TIMEOUT_S:
-            ending += (f"; the bash tool stops a command only after {TIMER}, so a deadline "
-                       "that is not above that cannot see such an observation")
+            ending += (f"; the bash tool stops a command only after {TIMER}, so a deadline at "
+                       "or below that cannot see such an observation")
     elif "workload_exited" not in by_kind:
         ending = "the workload was stopped before the tool call returned"
     elif by_kind["workload_exited"]["exit_status"] == 0 and refused_line:
