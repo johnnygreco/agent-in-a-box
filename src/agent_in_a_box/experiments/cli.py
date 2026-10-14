@@ -180,8 +180,8 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
             return "allowed by the proxy and answered by the fixture"
         return f"allowed by the proxy; {application_answer(observation)}: nothing refused it"
     if observation["detail"].get("timed_out"):
-        return ("no proxy event: the bash tool's own timeout ended the command; neither the "
-                "kernel nor the proxy refused anything")
+        return ("no proxy event: the bash tool's own timeout (30 s) ended the command before "
+                "it exited; whatever it did first is in its output above")
     if reached_the_fixture(observation):
         return ("no proxy event: the request reached the fixture directly, which refused it "
                 "for lacking the proxy's stamp. Nothing stood between the workload and the "
@@ -201,6 +201,9 @@ def application_answer(observation: dict) -> str:
     status = observation["detail"].get("status")
     if status is not None:
         return f"the application answered {status}"
+    if observation["detail"].get("timed_out"):
+        return ("the application answered, and the bash tool's own timeout (30 s) ended the "
+                "command before it exited")
     exit_status = observation["detail"].get("exit_status")
     return f"the application answered, and the program exited {exit_status}"
 
@@ -343,7 +346,10 @@ def main(argv: list[str] | None = None) -> int:
                          help="policy variant")
     probing.add_argument("--variant", default="default", help="fixture variant",
                          choices=sorted(path.stem for path in VARIANT_DIR.glob("*.json")))
-    probing.add_argument("--deadline", type=float, default=30.0)
+    probing.add_argument("--deadline", type=float, default=45.0,
+                         help="seconds the supervisor gives the run (default 45). The bash tool "
+                              "stops a command after 30 s on its own; keep this above that to "
+                              "see such an observation rather than a run that ran out of time")
     what = probing.add_mutually_exclusive_group(required=True)
     what.add_argument("--bash", metavar="COMMAND",
                       help="a shell command; {direct} becomes the fixture's own host:port")

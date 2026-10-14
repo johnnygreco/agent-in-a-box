@@ -6,6 +6,7 @@ Expected trajectories follow the scripted strategy table and the policy text.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,17 @@ def test_agent_output_cannot_pose_as_a_host_record():
         "agent.proxy.decision", "agent", "agent-reported")
     assert agent_line("not json", 100.0).kind == "agent.text"
     assert agent_line("x" * 20000, 100.0).kind == "agent.oversized"
+
+
+def test_agent_lines_are_framed_on_the_newline_byte_only(tmp_path):
+    """A JSON string may carry U+2028, U+2029, or NEL; they are not record breaks."""
+    from agent_in_a_box.supervisor.evidence import Tail
+
+    path = tmp_path / "agent-events.jsonl"
+    event = {"kind": "observation", "output": "one\u2028two\u2029three\u0085four"}
+    path.write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+    lines = Tail(path).read()
+    assert len(lines) == 1 and agent_line(lines[0], 1.0).kind == "agent.observation"
 
 
 def test_agent_claimed_time_is_data_not_order():

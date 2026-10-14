@@ -1,7 +1,7 @@
 # 0015. The data plane carries a run credential and a forward stamp
 
 Date: 2026-10-14
-Status: accepted
+Status: accepted; amends ADR 0004 (the proxy requires a run credential, and the parsed-field inventory gained the Transfer-Encoding header)
 
 ## Context
 

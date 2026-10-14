@@ -31,7 +31,7 @@ Linux confirmations below were made on 2026-10-09 on Debian 12, kernel 6.1.0-50-
 | Metadata | Governed: `file-read-metadata` | Not governed by Landlock: a mounted path can be looked up without a grant; unmounted paths do not exist | Disclosed in capabilities |
 | A read grant on a directory | `literal` covers that directory's listing only | Landlock rules cover a path and everything beneath it, so subdirectories can be listed too | Disclosed in capabilities |
 | How a denial looks | EPERM | ENOENT (not mounted), EACCES (Landlock), EROFS (read-only mount), connection refused or network unreachable (network namespace) | Chapter 4 probe expectations differ in failure mode, not in outcome |
-| Reaching the proxy | Allowed TCP port on loopback | The sandbox's own loopback, relayed through a mounted Unix socket | Same `HTTP_PROXY` for the workload on both |
+| Reaching the proxy | Allowed TCP port on loopback | The sandbox's own loopback, relayed through a mounted Unix socket | Same proxy settings for the workload on both |
 | Availability | Always present; `sandbox-exec` deprecated | Needs Landlock in the LSM list (ABI 2 or later), unprivileged user namespaces, bubblewrap, and seccomp on x86-64 or arm64 | Doctor output |
 
 ## Expected failures in the shared conformance suite

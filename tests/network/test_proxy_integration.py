@@ -185,6 +185,22 @@ def test_the_fixture_refuses_undeclared_or_bad_body_lengths_before_reading(tmp_p
     assert receipts_of(receipts) == []
 
 
+def test_the_fixture_is_quiet_when_a_client_resets_and_loud_otherwise(capsys):
+    from agent_in_a_box.network.fixture_service import QuietServer
+
+    server = QuietServer.__new__(QuietServer)  # handle_error needs no bound socket
+    try:
+        raise ConnectionResetError("peer reset")
+    except ConnectionResetError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert capsys.readouterr().err == ""
+    try:
+        raise ValueError("a real bug")
+    except ValueError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert "a real bug" in capsys.readouterr().err
+
+
 def test_the_fixture_honours_a_clients_connection_close_on_an_accepted_request(tmp_path):
     receipts = tmp_path / "receipts.jsonl"
     with fixture_service("default", receipts, "known-stamp") as route:

@@ -101,10 +101,17 @@ def test_a_407_with_no_decision_means_the_request_reached_the_proxy_without_cred
 
 
 def test_a_command_ended_by_the_bash_tools_timeout_is_named_as_such():
-    timed_out = {"ok": False, "output": "hi", "detail": {"timed_out": True}}
-    expected = ("no proxy event: the bash tool's own timeout ended the command; neither the "
-                "kernel nor the proxy refused anything")
-    assert layer(timed_out, [], []) == expected
+    """The tool's timer is the one fact; what the command did first, a refused connection
+    or an allowed fetch, is left to the output and the decision records."""
+    refused_first = {"ok": False, "detail": {"timed_out": True},
+                     "output": "curl: (7) Failed to connect to 127.0.0.1 port 1"}
+    assert layer(refused_first, [], []) == (
+        "no proxy event: the bash tool's own timeout (30 s) ended the command before it exited; "
+        "whatever it did first is in its output above")
+    fetched_first = {"ok": False, "output": "", "detail": {"timed_out": True}}
+    assert layer(fetched_first, [ALLOWED], [RECEIPT]) == (
+        "allowed by the proxy; the application answered, and the bash tool's own timeout (30 s) "
+        "ended the command before it exited: nothing refused it")
 
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():
