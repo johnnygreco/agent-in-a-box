@@ -5,6 +5,9 @@ becomes three layers here (decisions/0010):
 
   namespaces  bubblewrap gives the workload its own user, PID, network, IPC,
               and UTS namespaces. The network namespace has only loopback.
+              The sandbox cannot create user namespaces of its own, and the
+              launcher is the PID namespace's init, so no process in it is
+              less confined than the workload (decisions/0014).
   mounts      the filesystem view. Paths with read, execute, or metadata
               grants are mounted read-only; paths with write grants are
               mounted writable. Anything else does not exist inside.
@@ -32,7 +35,8 @@ PROFILE_FORMAT = "landlock+bwrap+seccomp"
 PROXY_SOCKET_DIR = "/run/agent-in-a-box"
 PROXY_SOCKET = f"{PROXY_SOCKET_DIR}/proxy.sock"
 NAMESPACES = ("--unshare-user", "--unshare-pid", "--unshare-net", "--unshare-ipc",
-              "--unshare-uts", "--unshare-cgroup-try", "--die-with-parent", "--new-session")
+              "--unshare-uts", "--unshare-cgroup-try", "--disable-userns", "--as-pid-1",
+              "--die-with-parent", "--new-session")
 
 WRITE_RIGHTS_ON_DIRECTORY = ("write_file", "truncate", "make_reg", "make_dir", "make_sym",
                              "make_fifo", "make_sock", "remove_file", "remove_dir", "refer")
@@ -112,6 +116,8 @@ def self_probes(plan: GrantPlan) -> list[dict]:
         {"name": "no route leaves the network namespace", "op": "connect",
          "target": "192.0.2.1", "expect": "unreachable"},
         {"name": "seccomp refuses netlink sockets", "op": "socket", "target": "16",
+         "expect": "refused"},
+        {"name": "a new user namespace cannot be created", "op": "unshare", "target": "user",
          "expect": "refused"},
     ]
     for path in plan.protected:

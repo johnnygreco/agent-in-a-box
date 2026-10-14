@@ -1,6 +1,8 @@
 """The agent-in-a-box command line.
 
     agent-in-a-box doctor [--test-backend]
+    agent-in-a-box probe [--test-backend] [--policy P0] [--variant default]
+                         (--bash COMMAND | --http METHOD URL)
     agent-in-a-box gateway serve [--port N] [--test-backend]
     agent-in-a-box trailer|chapter5 [--test-backend] [--session NAME] [--gateway STATE_FILE]
     agent-in-a-box site-data --published [--bundles DIR] [--out DIR]
@@ -59,6 +61,73 @@ def doctor(args: argparse.Namespace) -> int:
         print(f"  note: {note}")
     print(f"native execution: {'enabled' if report.native_execution else 'disabled'}")
     return 0 if ok and report.ok else 1
+
+
+def probe(args: argparse.Namespace) -> int:
+    """Run one tool call as the workload under a policy, then show the evidence each
+    layer left, the way chapter 4's probe table reads it (CURRICULUM.md)."""
+    from agent_in_a_box.experiments import scenario
+    from agent_in_a_box.policy import schema
+
+    runtime = runtime_for(args)
+    if runtime.backend is None:
+        print(f"Refused: {runtime.backend_refusal}. Use --test-backend for the test double.")
+        return 1
+    if runtime.backend.name == "none":
+        print("Test backend: nothing is contained; every record says enforcement: none.")
+
+    def tool_call(route):
+        if args.http:
+            return {"name": "http", "arguments": {"method": args.http[0], "url": args.http[1]}}
+        command = args.bash.replace("{direct}", f"{route.host}:{route.port}")
+        return {"name": "bash", "arguments": {"command": command}}
+
+    record = scenario.run(runtime, schema.load_variant(args.policy), variant=args.variant,
+                          probe=tool_call, deadline_s=args.deadline)
+    print(f"run {record.run_id}: {record.status} [enforcement: {record.enforcement}; "
+          f"policy {args.policy}; fixture variant {args.variant}]")
+    if record.status != "completed":
+        print(f"refused: {record.refusal}")
+        return 1
+    by_kind = {kind: [plain(e.payload) for e in record.events if e.kind == kind]
+               for kind in ("agent.observation", "proxy.decision", "fixture.receipt")}
+    observation = by_kind["agent.observation"][0]["data"]["observation"]
+    print(f"observation: {'ok' if observation['ok'] else 'not ok'}; "
+          f"detail {json.dumps(observation['detail'])}")
+    for line in observation["output"].splitlines()[:40]:
+        print(f"  | {line}")
+    for decision in by_kind["proxy.decision"]:
+        last = decision["checks"][-1]
+        determining = last["decision"]["determining"] if last["decision"] else []
+        named = f"; determining {', '.join(determining)}" if determining else ""
+        print(f"proxy decision {decision['seq']}: {decision['label']} at check "
+              f"'{last['name']}'{named}; {last['detail']}")
+    print(f"fixture receipts: {len(by_kind['fixture.receipt'])}")
+    print(f"layer: {layer(observation, by_kind['proxy.decision'], by_kind['fixture.receipt'])}")
+    return 0
+
+
+def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str:
+    """Which layer the evidence points at, by chapter 4's checklist: a proxy decision
+    record, a fixture receipt, and the observation's own errno or exit status."""
+    refused = [decision for decision in decisions if decision["label"] == "refused"]
+    if refused:
+        last = refused[0]["checks"][-1]
+        determining = last["decision"]["determining"] if last["decision"] else []
+        if determining:
+            return f"the proxy refused it: the determining policies are {', '.join(determining)}"
+        if last["decision"]:
+            return "the proxy refused it: no permit matched, so Cedar's default deny applied"
+        return f"the proxy refused it before asking Cedar: {last['detail']}"
+    if decisions and receipts:
+        if observation["ok"]:
+            return "allowed by the proxy and answered by the fixture"
+        return (f"allowed by the proxy; the application answered "
+                f"{observation['detail'].get('status')}: nothing refused it")
+    if observation["ok"]:
+        return "no proxy event: the kernel permitted the operation"
+    return ("no proxy event and no receipt: the kernel stopped it, or the program itself "
+            "failed; read the errno or exit status")
 
 
 def gateway(args: argparse.Namespace) -> int:
@@ -171,6 +240,17 @@ def main(argv: list[str] | None = None) -> int:
         return p
 
     with_backend(commands.add_parser("doctor")).set_defaults(run=doctor)
+    probing = with_backend(commands.add_parser(
+        "probe", help="run one bash command or HTTP request as the workload, then attribute it"))
+    probing.add_argument("--policy", default="P0", help="policy variant (P0 to P6)")
+    probing.add_argument("--variant", default="default", help="fixture variant")
+    probing.add_argument("--deadline", type=float, default=30.0)
+    what = probing.add_mutually_exclusive_group(required=True)
+    what.add_argument("--bash", metavar="COMMAND",
+                      help="a shell command; {direct} becomes the fixture's own host:port")
+    what.add_argument("--http", nargs=2, metavar=("METHOD", "URL"),
+                      help="an HTTP request through the proxy")
+    probing.set_defaults(run=probe)
     serve = with_backend(commands.add_parser("gateway").add_subparsers(
         dest="gateway_command", required=True).add_parser("serve"))
     serve.add_argument("--port", type=int, default=0)

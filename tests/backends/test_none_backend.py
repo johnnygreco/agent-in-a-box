@@ -48,7 +48,8 @@ def test_workload_waits_at_the_gate_until_confirm(tmp_path):
     backend = NoEnforcementBackend()
     run = runs.create_run(tmp_path / "runs")
     probe = {"name": "bash", "arguments": {"command": "echo hi"}}
-    workload = runs.workload(run, "t", proxy_port=9, deadline_s=10, probe=probe)
+    workload = runs.workload(run, "t", proxy_url="http://run:x@127.0.0.1:9", deadline_s=10,
+                             probe=probe)
     process = backend.launch(backend.prepare(_empty_plan(), run), workload)
     time.sleep(0.5)
     assert Path(workload.stdout_path).read_text() == ""
@@ -65,7 +66,8 @@ def test_stop_ends_lingering_descendants_in_the_group(tmp_path):
     run = runs.create_run(tmp_path / "runs")
     command = "nohup sleep 600 >/dev/null 2>&1 & sleep 600"
     probe = {"name": "bash", "arguments": {"command": command}}
-    workload = runs.workload(run, "t", proxy_port=9, deadline_s=1, probe=probe)
+    workload = runs.workload(run, "t", proxy_url="http://run:x@127.0.0.1:9", deadline_s=1,
+                             probe=probe)
     process = backend.launch(backend.prepare(_empty_plan(), run), workload)
     backend.confirm(process)
     assert backend.wait(process, 1) is None

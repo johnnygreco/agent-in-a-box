@@ -163,7 +163,7 @@ The scripted model adapter follows this table. It ships beside the lesson and is
 | Prediction | For each of four probes, which layer decides: kernel / proxy and Cedar / application / none. |
 | Intervention | Run the controlled probe set below in Bash and child Python. View results side by side with attribution. |
 | Expected observation | Kernel denials have no Cedar event; proxy refusals have a decision record; a 404 is neither. Children inherit the profile. |
-| Explanation | Two integrations: static filesystem grants enforced by the kernel, and per-request network decisions made by Cedar through the proxy. Evidence-of-absence checklist. What Seatbelt is and is not (not a VM, not a resource limiter, not a syscall tracer). Why not a container. The recorded uncontained contrast bundle. On the secondary Linux backend the same grant plan is rendered to Landlock rules and a network namespace; probe outcomes match, failure messages differ, and the capability notes say so. |
+| Explanation | Two integrations: static filesystem grants enforced by the kernel, and per-request network decisions made by Cedar through the proxy. Evidence-of-absence checklist. What Seatbelt is and is not (not a VM, not a resource limiter, not a syscall tracer). Why not a container. The recorded uncontained contrast bundle. On the secondary Linux backend the same grant plan is rendered to Landlock rules and a network namespace; probe outcomes match, failure messages differ, and the capability notes say so. Two Linux-only probes show layers failing differently: the sandbox cannot create a user namespace, and a Landlock-restricted process that could would still be refused every mount; and PID 1 is the launcher, as confined as the workload, so there is no less-confined process to borrow. |
 | Source | Grant plan compiler, SBPL excerpt, launcher (budgets 250, 150). |
 | Transfer | An operation failed with "permission denied." Name the three things you check. Reveal: proxy event present or absent, exit status and errno, matching profile rule. |
 | Disclosure | Full SBPL, grant plan, process accounting. |
@@ -285,7 +285,7 @@ The scripted model adapter follows this table. It ships beside the lesson and is
 
 ## Controlled probes (chapter 4)
 
-Every probe ships with its expectation and its "how we know." Expected results are authored from the grant plan and profile; they are confirmed on the Mac in M1 and M3, never derived from the implementation's own output.
+Every probe ships with its expectation and its "how we know." Expected results are authored from the grant plan and profile; they are confirmed on the Mac in M1 and M3, never derived from the implementation's own output. The `probe` command runs one bash command or HTTP request of the learner's own the same way and prints the evidence each layer left.
 
 | Probe | Command inside the sandbox | Expected | Layer | How we know |
 | --- | --- | --- | --- | --- |

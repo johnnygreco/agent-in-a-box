@@ -2,20 +2,26 @@
 
 The central check (M0 gate): a refused request never reaches the fixture
 handler. The fixture logs every request that reaches its handler before
-answering, so a refused request must leave no receipt.
+answering, so a refused request must leave no receipt. Since decisions/0015,
+a request without the run's credential is not even decided, and the fixture
+answers only requests the proxy stamped.
 """
 
 from __future__ import annotations
 
+import base64
 import json
+import secrets
 import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 import pytest
 
 from agent_in_a_box.experiments.scenario import REFERENCE, fixture_service
+from agent_in_a_box.network.proxy import Lab
 from agent_in_a_box.policy import schema
 from agent_in_a_box.policy.compiler import compile_policy
 from agent_in_a_box.policy.evaluator import CedarpyEvaluator
@@ -27,18 +33,20 @@ def lab(tmp_path):
     """A fixture service and a proxy for P0, as a run would start them."""
     run = runs.create_run(tmp_path / "runs")
     receipts = tmp_path / "receipts.jsonl"
-    with fixture_service("default", receipts) as route:
+    stamp = secrets.token_urlsafe(8)
+    with fixture_service("default", receipts, stamp) as route:
         compiled = compile_policy(schema.load_variant("P0"), CedarpyEvaluator())
-        proxy = dataplane.start_proxy(run, compiled, {REFERENCE: route}, "cedarpy")
+        proxy = dataplane.start_proxy(run, compiled, Lab({REFERENCE: route}, stamp), "cedarpy")
         try:
             yield proxy, receipts, route
         finally:
             dataplane.stop(proxy.process)
 
 
-def send(proxy, method, url, body=None, headers=None):
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": f"http://127.0.0.1:{proxy.port}"}))
+def send(proxy, method, url, body=None, headers=None, credential=True):
+    """A request through the proxy, with the run's credential unless told otherwise."""
+    proxy_url = proxy.url if credential else f"http://127.0.0.1:{proxy.port}"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url}))
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     try:
         with opener.open(request, timeout=10) as response:
@@ -60,7 +68,26 @@ def test_allowed_get_reaches_the_fixture(lab):
     status, _, body = send(proxy, "GET", "http://reference.fixture/reference")
     assert status == 200 and b"temperature_c,21.0" in body
     assert receipts_of(receipts) == [("GET", "/reference")]
-    assert decisions_of(proxy)[0]["label"] == "allowed"
+    decision = decisions_of(proxy)[0]
+    assert decision["label"] == "allowed"
+    assert decision["checks"][0]["detail"].endswith("target as sent: /reference")
+
+
+def test_a_request_without_the_run_credential_is_neither_decided_nor_recorded(lab):
+    """Another process on this host cannot put a request into the run's evidence."""
+    proxy, receipts, _ = lab
+    status, _, _ = send(proxy, "GET", "http://reference.fixture/reference", credential=False)
+    assert status == 407
+    assert decisions_of(proxy) == [] and receipts_of(receipts) == []
+
+
+def test_a_direct_request_to_the_fixture_without_the_stamp_leaves_no_receipt(lab):
+    """The fixture answers only what the run's proxy forwarded."""
+    _, receipts, route = lab
+    request = urllib.request.Request(f"http://{route.host}:{route.port}/reference")
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        urllib.request.urlopen(request, timeout=10)
+    assert refused.value.code == 403 and receipts_of(receipts) == []
 
 
 def test_refused_post_never_reaches_the_fixture_handler(lab):
@@ -95,9 +122,12 @@ def test_claimed_identity_header_has_no_effect(lab):
 
 def test_connect_tunnel_is_refused(lab):
     proxy, receipts, _ = lab
+    parts = urllib.parse.urlsplit(proxy.url)
+    basic = base64.b64encode(f"{parts.username}:{parts.password}".encode()).decode()
     with socket.create_connection(("127.0.0.1", proxy.port), timeout=10) as sock:
         sock.sendall(b"CONNECT reference.fixture:443 HTTP/1.1\r\n"
-                     b"Host: reference.fixture:443\r\n\r\n")
+                     b"Host: reference.fixture:443\r\n"
+                     b"Proxy-Authorization: Basic " + basic.encode() + b"\r\n\r\n")
         reply = sock.recv(4096)
     assert reply.startswith(b"HTTP/1.1 403")
     assert receipts_of(receipts) == []
@@ -108,7 +138,7 @@ def test_proxy_refuses_to_start_with_a_tampered_policy(tmp_path):
     run = runs.create_run(tmp_path / "runs")
     compiled = compile_policy(schema.load_variant("P0"), CedarpyEvaluator())
     original = dataplane.start_proxy  # write files, then tamper and restart by hand
-    proxy = original(run, compiled, {}, "cedarpy")
+    proxy = original(run, compiled, Lab({}, "stamp"), "cedarpy")
     dataplane.stop(proxy.process)
     policy = Path(run.private) / "policy.cedar"
     policy.write_text(policy.read_text().replace('"GET"', '"POST"'))

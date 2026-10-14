@@ -7,13 +7,15 @@ ADR 0010; the doctor's refusals by removing each prerequisite in turn.
 
 from __future__ import annotations
 
+import errno
 import json
 import struct
+import subprocess
 
 import pytest
 
 from agent_in_a_box.contracts import Access, DoctorCheck, Extent, GrantPlan, PathGrant
-from agent_in_a_box.supervisor.backends.landlock import doctor, profile, seccomp, syscalls
+from agent_in_a_box.supervisor.backends.landlock import doctor, probes, profile, seccomp, syscalls
 
 
 def grant(path, access, extent=Extent.SUBTREE, origin="policy"):
@@ -105,9 +107,28 @@ def test_rights_keep_read_and_write_separate():
 
 
 def test_protected_paths_become_absence_probes():
-    probes = json.loads(profile.render(PLAN))["probes"]
+    rendered = json.loads(profile.render(PLAN))["probes"]
     assert {"op": "stat", "target": "/r/private", "expect": "absent"}.items() <= next(
-        probe for probe in probes if probe["op"] == "stat").items()
+        probe for probe in rendered if probe["op"] == "stat").items()
+
+
+def test_the_launcher_is_init_and_no_user_namespace_can_be_made_inside():
+    """decisions/0014: both flags are part of the hashed profile."""
+    assert "--as-pid-1" in profile.NAMESPACES and "--disable-userns" in profile.NAMESPACES
+    assert "--unshare-user" in profile.NAMESPACES  # --disable-userns requires it
+    rendered = json.loads(profile.render(PLAN))
+    assert rendered["namespaces"] == list(profile.NAMESPACES)
+    unshare = next(probe for probe in rendered["probes"] if probe["op"] == "unshare")
+    assert unshare["expect"] == "refused"
+
+
+def test_probe_outcomes_name_the_kernels_answers():
+    assert probes.attempt({"op": "stat", "target": "/no/such/agent-in-a-box/path"}) == "absent"
+    assert probes.attempt({"op": "nonsense", "target": ""}) == "unknown probe 'nonsense'"
+    assert probes.OUTCOMES[errno.ENOSPC] == "refused" and probes.OUTCOMES[errno.EPERM] == "denied"
+    probe = {"name": "n", "op": "stat", "target": "/no/such/path", "expect": "absent"}
+    assert probes.run([probe]) == [
+        {"name": "n", "expected": "absent", "observed": "absent", "passed": True}]
 
 
 @pytest.mark.parametrize("bad", ["relative", "/a/../b", "/a\nb", "//a"])
@@ -131,6 +152,16 @@ def test_doctor_names_a_missing_bubblewrap(monkeypatch):
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
     assert doctor.bubblewrap() == DoctorCheck("bubblewrap", False, "bwrap is not installed")
     assert not doctor.namespaces().ok
+
+
+def test_doctor_refuses_a_bubblewrap_without_disable_userns(monkeypatch):
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/bwrap")
+    monkeypatch.setattr(doctor.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout="bubblewrap 0.6.1\n", stderr=""))
+    check = doctor.bubblewrap()
+    assert not check.ok and "0.8.0" in check.detail and "--disable-userns" in check.detail
+    assert doctor.bubblewrap_version("bubblewrap 0.11.2") == (0, 11, 2)
+    assert doctor.bubblewrap_version("nonsense") is None
 
 
 def test_doctor_refuses_an_old_abi(monkeypatch):

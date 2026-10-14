@@ -27,7 +27,7 @@ Everything installs under your home directory or this repository. Nothing needs 
    python3 tooling/bootstrap.py --with-cli
    ```
 
-4. Check the setup. On Linux the doctor checks Landlock (ABI 2 or later), bubblewrap, unprivileged user namespaces, and seccomp, and says exactly what is missing. Without bubblewrap, install your distribution's `bubblewrap` package. On Ubuntu 24.04 and later, AppArmor restricts unprivileged user namespaces by default; the doctor names the setting.
+4. Check the setup. On Linux the doctor checks Landlock (ABI 2 or later), bubblewrap (0.8.0 or later), unprivileged user namespaces, and seccomp, and says exactly what is missing. Without bubblewrap, install your distribution's `bubblewrap` package; Debian 12 and Ubuntu 24.04 ship versions the doctor accepts, while older releases may ship one without the option that keeps the sandbox from creating user namespaces. On Ubuntu 24.04 and later, AppArmor restricts unprivileged user namespaces by default; the doctor names the setting.
 
    ```sh
    uv run agent-in-a-box doctor
@@ -45,6 +45,14 @@ The CLI starts a local gateway on 127.0.0.1, then drives the trailer through its
 ```sh
 uv run agent-in-a-box bundle show .agent-in-a-box/bundles/<file>.json
 uv run agent-in-a-box bundle replay .agent-in-a-box/bundles/<file>.json
+```
+
+Probe the boundary yourself. One bash command or HTTP request runs as the workload under a policy, and the output says what each layer left behind: the observation's own exit status or errno, any proxy decision record with its determining policies, and any fixture receipt. In a command, `{direct}` becomes the fixture's own address, which only the proxy should be able to reach.
+
+```sh
+uv run agent-in-a-box probe --bash 'cat measurements.csv'
+uv run agent-in-a-box probe --http POST http://reference.fixture/reference
+uv run agent-in-a-box probe --bash "curl -sS --noproxy '*' --max-time 5 http://{direct}/reference"
 ```
 
 `uv run agent-in-a-box chapter5 --test-backend` runs chapter 5's ladder the same way: the POST and PUT counterexamples, the repair, the deny-all repair, and a deliberate "no conclusion".

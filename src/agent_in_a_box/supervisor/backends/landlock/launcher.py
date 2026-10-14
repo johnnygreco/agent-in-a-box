@@ -1,39 +1,40 @@
-"""The launcher: confine itself, check the confinement, then become the workload.
+"""The launcher: confine itself, check the confinement, then run the workload as init.
 
 bubblewrap has already given this process its own namespaces, built its
-filesystem view, and loaded the seccomp filter. This program runs first
-inside, before any workload code:
+filesystem view, loaded the seccomp filter, and made it PID 1 of the new PID
+namespace. This program runs first inside, before any workload code:
 
   1. read the profile's Landlock rules (passed on a file descriptor)
   2. restrict itself with them; from here on it, and every process it
      starts, is confined, and nothing can undo that
-  3. run the self-probes: each must fail in exactly the expected way
+  3. run the self-probes (probes.py): each must fail in exactly the expected way
   4. start the loopback relay to the proxy
-  5. report to the supervisor, then replace itself with the workload,
-     which waits until the supervisor admits it
+  5. report to the supervisor
+  6. start the workload as a child, which waits until the supervisor admits
+     it, and stay as the namespace's init: reap whatever exits, and end with
+     the workload's status, which ends every process left in the namespace
 
-If any step fails, it reports the failure and exits; the workload never runs.
+If any step before 6 fails, it reports the failure and exits; the workload
+never runs. The launcher stays as PID 1 instead of becoming the workload so
+that no process in the sandbox is less confined than the workload is
+(decisions/0014).
 
-    python -m agent_in_a_box.supervisor.backends.landlock.launcher \
+    python -m agent_in_a_box.supervisor.backends.landlock.launcher \\
         --profile-fd N --report-fd M -- <workload command>
 """
 
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import os
+import signal
 import socket
 import sys
 
-from agent_in_a_box.supervisor.backends.landlock import relay, syscalls
+from agent_in_a_box.supervisor.backends.landlock import probes, relay, syscalls
 
-OUTCOMES = {
-    errno.EACCES: "denied", errno.EPERM: "denied", errno.EROFS: "denied",
-    errno.ENOENT: "absent", errno.ENETUNREACH: "unreachable", errno.EHOSTUNREACH: "unreachable",
-    errno.EAFNOSUPPORT: "refused",
-}
+FORWARDED_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
 
 
 def apply_landlock(rules: list[dict]) -> dict:
@@ -65,31 +66,6 @@ def apply_landlock(rules: list[dict]) -> dict:
             "applied": applied, "skipped": skipped}
 
 
-def attempt(probe: dict) -> str:
-    """Try one operation the confinement must stop; return what happened."""
-    operation = probe["op"]
-    target = probe["target"]
-    try:
-        if operation == "listdir":
-            os.listdir(target)
-        elif operation == "create":
-            with open(target, "x"):
-                pass
-        elif operation == "stat":
-            os.stat(target)
-        elif operation == "connect":
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as connection:
-                connection.settimeout(2)
-                connection.connect((target, 9))
-        elif operation == "socket":
-            socket.socket(int(target), socket.SOCK_RAW).close()
-        else:
-            return f"unknown probe {operation!r}"
-    except OSError as error:
-        return OUTCOMES.get(error.errno, f"error: {error.strerror}")
-    return "allowed"
-
-
 def start_relay(proxy: dict) -> None:
     """Listen on the proxy port on loopback, in a child process that forwards to the socket."""
     listener = socket.create_server(("127.0.0.1", proxy["port"]))
@@ -103,16 +79,37 @@ def confine(profile: dict) -> dict:
     report: dict = {"ok": False}
     try:
         report["landlock"] = apply_landlock(profile["landlock"])
-        report["probes"] = []
-        for probe in profile["probes"]:
-            observed = attempt(probe)
-            report["probes"].append({"name": probe["name"], "expected": probe["expect"],
-                                     "observed": observed, "passed": observed == probe["expect"]})
+        report["probes"] = probes.run(profile["probes"])
         start_relay(profile["proxy"])
         report["ok"] = all(probe["passed"] for probe in report["probes"])
     except Exception as error:  # any failure refuses the run
         report["error"] = f"{type(error).__name__}: {error}"
     return report
+
+
+def start_workload(command: list[str]) -> int:
+    """Start the workload as a child with stdin, stdout, and stderr only."""
+    child = os.fork()
+    if child == 0:
+        os.closerange(3, os.sysconf("SC_OPEN_MAX"))
+        os.execv(command[0], command)
+    return child
+
+
+def serve_as_init(workload: int) -> int:
+    """Reap every process that exits until the workload does; return its exit status.
+
+    PID 1 receives a signal from outside its namespace only if it handles it,
+    so the signals a supervisor might send are passed on to the workload. When
+    this process exits, the kernel ends everything left in the namespace.
+    """
+    for number in FORWARDED_SIGNALS:
+        signal.signal(number, lambda received, _frame: os.kill(workload, received))
+    while True:
+        pid, status = os.wait()
+        if pid == workload:
+            code = os.waitstatus_to_exitcode(status)
+            return code if code >= 0 else 128 - code
 
 
 def main() -> int:
@@ -129,9 +126,7 @@ def main() -> int:
         json.dump(report, sink)
     if not report["ok"] or not command:
         return 3
-    # The workload starts with stdin, stdout, and stderr only: nothing else is inherited.
-    os.closerange(3, os.sysconf("SC_OPEN_MAX"))
-    os.execv(command[0], command)
+    return serve_as_init(start_workload(command))
 
 
 if __name__ == "__main__":

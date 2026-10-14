@@ -24,7 +24,7 @@ from agent_in_a_box.contracts import (
     CedarEvaluator, ContainedProcess, LaunchRefused, PolicyBundle, RunRecord, RunSpec,
     SupervisorBackend, WorkloadSpec, plain,
 )
-from agent_in_a_box.network.proxy import Route
+from agent_in_a_box.network.proxy import Lab
 from agent_in_a_box.policy.compiler import PolicyRejected, compile_policy
 from agent_in_a_box.supervisor import dataplane, runs
 from agent_in_a_box.supervisor.evidence import EvidenceLog, Publish
@@ -39,7 +39,7 @@ class RunRequest:
     task: str
     bundle: PolicyBundle
     fixture_variant: str
-    routes: Mapping[str, Route]
+    lab: Lab
     receipts: Path | None = None
     deadline_s: float = 60.0
     probe: Mapping | None = None
@@ -85,10 +85,10 @@ def start(request: RunRequest, backend: SupervisorBackend, evaluator: CedarEvalu
                   policy_ids=[policy.id for policy in compiled.validation.policies],
                   warnings=plain(compiled.validation.warnings))
 
-    proxy = dataplane.start_proxy(run_spec, compiled, dict(request.routes), evaluator_name)
+    proxy = dataplane.start_proxy(run_spec, compiled, request.lab, evaluator_name)
     try:
-        log.lifecycle("proxy_started", port=proxy.port, routes=plain(list(request.routes.values())),
-                      eligible=plain(compiled.proxy.eligible))
+        log.lifecycle("proxy_started", routes=plain(list(request.lab.routes.values())),
+                      port=proxy.port, eligible=plain(compiled.proxy.eligible))
         plan = grant_plan(compiled, run_spec, proxy.port)
         log.lifecycle("grants_derived", task=plain(plan.task), runtime=plain(plan.runtime),
                       protected=list(plan.protected))
@@ -99,7 +99,7 @@ def start(request: RunRequest, backend: SupervisorBackend, evaluator: CedarEvalu
             log.lifecycle("profile_prepared", **plain(prepared))
 
         probe = plain(request.probe) if request.probe else None
-        workload = runs.workload(run_spec, request.task, proxy.port, request.deadline_s, probe)
+        workload = runs.workload(run_spec, request.task, proxy.url, request.deadline_s, probe)
         process = backend.launch(prepared, workload)
         log.lifecycle("launched", pid=process.pid, argv=list(workload.argv))
         report = backend.confirm(process)

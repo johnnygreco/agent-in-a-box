@@ -6,6 +6,11 @@ The supervisor starts one per run, outside the workload boundary, and reads
 the decision records it appends to the run's private directory. mitmproxy
 parses HTTP; every decision is made by network/proxy.py before anything is
 sent upstream. Prints `READY <port>` once listening on 127.0.0.1.
+
+The proxy requires the run's credential on every request (mitmproxy's own
+proxy authentication, answering 407 otherwise); a request without it is
+neither decided nor recorded. Every request it forwards carries the lab's
+stamp, which the fixture requires (decisions/0015).
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from mitmproxy.tools.dump import DumpMaster
 
 from agent_in_a_box import composition
 from agent_in_a_box.contracts import EligibleEndpoint, PolicyBundle, ProxyPlan
+from agent_in_a_box.network.fixture_service import STAMP_HEADER
 from agent_in_a_box.network.protocol import ParsedRequest
 from agent_in_a_box.network.proxy import DecisionPath, ProxyDecision, Route
 
@@ -29,10 +35,12 @@ from agent_in_a_box.network.proxy import DecisionPath, ProxyDecision, Route
 class Enforcer:
     """mitmproxy addon: parse, decide, then forward or refuse."""
 
-    def __init__(self, master: DumpMaster, decision_path: DecisionPath, sink: Path) -> None:
+    def __init__(self, master: DumpMaster, decision_path: DecisionPath, sink: Path,
+                 stamp: str) -> None:
         self.master = master
         self.decision_path = decision_path
         self.sink = sink
+        self.stamp = stamp
 
     def running(self) -> None:
         proxyserver = self.master.addons.get("proxyserver")
@@ -41,22 +49,28 @@ class Enforcer:
 
     def http_connect(self, flow: http.HTTPFlow) -> None:
         """CONNECT requests are always refused, by the protocol check."""
+        if flow.response is not None:
+            return  # already answered 407: the request carried no run credential
         decision = self.decision_path.decide(parse(flow, scheme="connect"))
         self.record(decision)
         self.refuse(flow, decision)
 
     def requestheaders(self, flow: http.HTTPFlow) -> None:
         """Decide before mitmproxy opens any upstream connection."""
+        if flow.response is not None:
+            return  # already answered 407: the request carried no run credential
         decision = self.decision_path.decide(parse(flow, scheme=flow.request.scheme))
         self.record(decision)
         if not decision.forwarded or decision.route is None:
             self.refuse(flow, decision)
             return
-        # Send to the lab transport for this endpoint; keep the Host the client sent.
+        # Send to the lab transport for this endpoint; keep the Host the client sent,
+        # and stamp the request so the fixture knows it came through this proxy.
         host_header = flow.request.host_header
         flow.request.host = decision.route.host
         flow.request.port = decision.route.port
         flow.request.host_header = host_header
+        flow.request.headers[STAMP_HEADER] = self.stamp
 
     def record(self, decision: ProxyDecision) -> None:
         with self.sink.open("a") as sink:
@@ -90,7 +104,7 @@ def read_pinned(path: str, expected_sha256: str) -> str:
     return text
 
 
-def load(config: dict) -> tuple[DecisionPath, Path]:
+def load(config: dict) -> tuple[DecisionPath, Path, str]:
     schema_text = read_pinned(config["schema_path"], config["schema_sha256"])
     policy_text = read_pinned(config["policy_path"], config["policy_sha256"])
     bundle = PolicyBundle(config["policy_name"], schema_text, policy_text)
@@ -101,17 +115,18 @@ def load(config: dict) -> tuple[DecisionPath, Path]:
     evaluator = composition.select_evaluator(config["evaluator"])
     decision_path = DecisionPath(config["run_id"], bundle, evaluator,
                                  ProxyPlan(eligible, bundle.policy_hash), routes)
-    return decision_path, Path(config["decisions_path"])
+    return decision_path, Path(config["decisions_path"]), config["stamp"]
 
 
 async def serve(config: dict) -> None:
-    decision_path, sink = load(config)
+    decision_path, sink, stamp = load(config)
     master = DumpMaster(options.Options(), with_termlog=False, with_dumper=False)
     master.options.update(
         listen_host="127.0.0.1", listen_port=config.get("listen_port", 0),
         confdir=config["confdir"], http2=False, websocket=False, rawtcp=False,
+        proxyauth=f"run:{config['credential']}",
     )
-    master.addons.add(Enforcer(master, decision_path, sink))
+    master.addons.add(Enforcer(master, decision_path, sink, stamp))
     await master.run()
 
 

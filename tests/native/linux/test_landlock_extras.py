@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 import sys
 import uuid
 
@@ -162,6 +163,65 @@ print(json.dumps(results))
 """
     _, results = run_python(runtime, code)
     assert results == {"vsock": 97, "packet": 97, "netlink": 97, "io_uring_setup": 38}
+
+
+def test_every_process_in_the_sandbox_is_confined_its_init_included(runtime):
+    """decisions/0014: PID 1 is the launcher, under Landlock and seccomp like the workload,
+    so a workload that could attach to it would gain nothing. The evidence is the
+    supervisor's own reading of /proc from outside, before the workload was admitted."""
+    record, _ = run_bash(runtime, "true")
+    containment = events(record, "containment")[0]
+    passed = {probe["name"]: probe["passed"] for probe in containment["probes"]}
+    assert passed["the namespace's init is the launcher"]
+    assert passed["every process in the namespace has no-new-privileges and seccomp"]
+    assert "the namespace's init is the launcher, confined like the workload" in (
+        containment["notes"])
+
+
+def test_a_user_namespace_cannot_be_created_inside(runtime):
+    """decisions/0014: without one, nothing inside ever holds a capability, so the mount
+    view cannot be copied and rearranged. ENOSPC is how the kernel says the limit is zero."""
+    code = """
+import errno, json, os
+try:
+    os.unshare(os.CLONE_NEWUSER)
+    result = "created"
+except OSError as error:
+    result = errno.errorcode[error.errno]
+print(json.dumps({"unshare": result}))
+"""
+    _, results = run_python(runtime, code)
+    assert results == {"unshare": "ENOSPC"}
+
+
+def test_landlock_refuses_mounts_even_from_a_nested_user_namespace(runtime):
+    """The layer behind that one, shown on its own outside the sandbox: a process under
+    any Landlock ruleset, even one that allows every file right everywhere, can create a
+    user namespace and hold every capability in it, and still cannot mount anything."""
+    code = """
+import ctypes, errno, json, os
+from agent_in_a_box.supervisor.backends.landlock import syscalls
+governed = syscalls.known_rights(syscalls.abi_version())
+ruleset = syscalls.create_ruleset(governed)
+syscalls.allow_beneath(ruleset, "/", governed)
+syscalls.restrict_self(ruleset)
+libc = ctypes.CDLL(None, use_errno=True)
+results = {}
+try:
+    os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNS)
+    results["namespaces"] = "created"
+except OSError as error:
+    results["namespaces"] = errno.errorcode[error.errno]
+if libc.mount(b"tmpfs", b"/tmp", b"tmpfs", 0, None) == 0:
+    results["mount"] = "mounted"
+else:
+    results["mount"] = errno.errorcode[ctypes.get_errno()]
+print(json.dumps(results))
+"""
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                               timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"namespaces": "created", "mount": "EPERM"}
 
 
 def test_host_processes_are_invisible_from_the_pid_namespace(runtime):

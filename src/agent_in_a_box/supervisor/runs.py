@@ -44,13 +44,15 @@ def create_run(runs_dir: Path, run_id: str | None = None) -> RunSpec:
                    private=str(run_dir / "private"))
 
 
-def workload(run: RunSpec, task: str, proxy_port: int, deadline_s: float = 60.0,
+def workload(run: RunSpec, task: str, proxy_url: str, deadline_s: float = 60.0,
              probe: dict | None = None) -> WorkloadSpec:
     """The harness command and a sanitized environment: no inherited secrets.
 
+    `proxy_url` carries the run's proxy credential (decisions/0015); it is the
+    one secret the workload holds, and it opens nothing but this run's proxy.
     With `probe` (a tool call), the harness runs the one-call probe model.
     """
-    proxy = f"http://127.0.0.1:{proxy_port}"
+    proxy = proxy_url
     env = {
         "PATH": os.pathsep.join([os.path.dirname(sys.executable), "/usr/bin", "/bin"]),
         "HOME": run.home,

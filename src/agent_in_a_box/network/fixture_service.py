@@ -8,17 +8,24 @@ Every request that reaches the handler is appended to a receipts file before
 it is answered. That file is the evidence that a refused request never
 reached the fixture: the proxy refuses before forwarding, so no receipt exists.
 
+    AGENT_IN_A_BOX_FIXTURE_STAMP=... \
     python -m agent_in_a_box.network.fixture_service --variant default --receipts PATH
 
 prints `READY <port>` once it listens on 127.0.0.1. The workload never learns
-this port; it reaches the fixture only through the proxy's named route.
+this port; it reaches the fixture only through the proxy's named route. The
+fixture answers only requests that carry the run's stamp, which the proxy
+adds to what it forwards, so a request from anything else on this host gets
+403 and no receipt (decisions/0015). The stamp arrives in the environment,
+which other users' processes cannot read; a command-line argument could be.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +35,8 @@ from agent_in_a_box.policy.schema import REPO_ROOT
 
 VARIANT_DIR = REPO_ROOT / "fixtures" / "reference"
 MAX_BODY = 1 << 20
+STAMP_ENV = "AGENT_IN_A_BOX_FIXTURE_STAMP"
+STAMP_HEADER = "X-Agent-In-A-Box-Stamp"
 
 
 def load_variant(name: str) -> dict:
@@ -57,7 +66,7 @@ class Receipts:
                 log.write(json.dumps(receipt) + "\n")
 
 
-def make_handler(variant: dict, receipts: Receipts) -> type[BaseHTTPRequestHandler]:
+def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "reference-fixture/1"
@@ -82,6 +91,11 @@ def make_handler(variant: dict, receipts: Receipts) -> type[BaseHTTPRequestHandl
                 self.wfile.write(data)
 
         def _handle(self) -> None:
+            if not hmac.compare_digest(self.headers.get(STAMP_HEADER, ""), stamp):
+                # Not from this run's proxy: answer without reading or recording anything.
+                self.close_connection = True
+                self._send(403, "this fixture answers only the run's proxy\n")
+                return
             body = self._receive()
             path = self.path.split("?", 1)[0]
             if path == "/reference" and self.command in ("GET", "HEAD"):
@@ -108,9 +122,13 @@ def main() -> None:
     parser.add_argument("--receipts", required=True, type=Path)
     parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
+    stamp = os.environ.get(STAMP_ENV)
+    if not stamp:
+        raise SystemExit(f"refusing to start: {STAMP_ENV} is not set, so no request could be "
+                         "told apart from one that bypassed the proxy")
     args.receipts.touch()
     variant = load_variant(args.variant)
-    handler = make_handler(variant, Receipts(args.receipts))
+    handler = make_handler(variant, Receipts(args.receipts), stamp)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
     print(f"READY {server.server_address[1]}", flush=True)
     server.serve_forever()
