@@ -24,9 +24,9 @@ def path_for(variant: str) -> DecisionPath:
 
 
 def request(method="GET", target="/reference", host="reference.fixture", host_header=None,
-            scheme="http", version="HTTP/1.1", upgrade=False, port=80):
+            scheme="http", version="HTTP/1.1", upgrade=False, port=80, chunked=False):
     return ParsedRequest(method, scheme, host, port, target,
-                         host if host_header is None else host_header, version, upgrade)
+                         host if host_header is None else host_header, version, upgrade, chunked)
 
 
 def checks(decision):
@@ -72,6 +72,7 @@ def test_p6_cedar_allows_the_connection_but_no_route_is_derived():
     request(version="HTTP/2.0"),
     request(method="BREW"),
     request(upgrade=True),
+    request(method="POST", chunked=True),  # a body of undeclared length
     request(target="reference"),
     request(target="/ref erence"),
     request(target="/réf"),

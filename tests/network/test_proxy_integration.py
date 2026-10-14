@@ -145,6 +145,36 @@ def test_the_fixture_refuses_a_stamp_with_bytes_past_ascii_without_a_traceback(l
     assert reply.startswith(b"HTTP/1.1 403") and receipts_of(receipts) == []
 
 
+def test_a_chunked_body_is_refused_by_the_proxy_before_cedar_and_leaves_no_receipt(lab):
+    """Without a declared length the receipt could not describe the body, so the protocol
+    check refuses the request (as it refuses upgrades) and records why."""
+    proxy, receipts, _ = lab
+    parts = urllib.parse.urlsplit(proxy.url)
+    basic = base64.b64encode(f"{parts.username}:{parts.password}".encode()).decode()
+    with socket.create_connection(("127.0.0.1", proxy.port), timeout=10) as sock:
+        sock.sendall(b"POST http://reference.fixture/collect HTTP/1.1\r\n"
+                     b"Host: reference.fixture\r\n"
+                     b"Proxy-Authorization: Basic " + basic.encode() + b"\r\n"
+                     b"Transfer-Encoding: chunked\r\n\r\nb\r\nhello world\r\n0\r\n\r\n")
+        reply = sock.recv(4096)
+    assert reply.startswith(b"HTTP/1.1 403") and receipts_of(receipts) == []
+    decision = decisions_of(proxy)[0]
+    assert decision["refused_by"] == "protocol" and "chunked" in decision["checks"][0]["detail"]
+
+
+def test_the_fixture_refuses_undeclared_or_bad_body_lengths_before_reading(tmp_path):
+    receipts = tmp_path / "receipts.jsonl"
+    stamped = (b"POST /collect HTTP/1.1\r\nHost: reference.fixture\r\n"
+               b"X-Agent-In-A-Box-Stamp: known-stamp\r\n")
+    with fixture_service("default", receipts, "known-stamp") as route:
+        chunked = raw_request(route, stamped + b"Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+        negative = raw_request(route, stamped + b"Content-Length: -1\r\n\r\n")
+        not_a_number = raw_request(route, stamped + b"Content-Length: abc\r\n\r\n")
+    assert chunked.startswith(b"HTTP/1.1 411")
+    assert negative.startswith(b"HTTP/1.1 400") and not_a_number.startswith(b"HTTP/1.1 400")
+    assert receipts_of(receipts) == []
+
+
 def test_the_fixture_refuses_an_oversize_body_before_reading_it(tmp_path):
     """A correctly stamped request whose body would exceed the fixture's limit gets 413
     before any of the body is read, leaves no receipt, and closes the connection."""

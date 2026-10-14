@@ -35,6 +35,7 @@ class ParsedRequest:
     host_header: str | None
     http_version: str
     upgrade: bool
+    chunked: bool = False  # a Transfer-Encoding header: the body's length is not declared
 
 
 def target_problem(target: str) -> str | None:
@@ -82,6 +83,8 @@ def protocol_problem(parsed: ParsedRequest) -> str | None:
         return f"method {parsed.method!r} is not supported"
     if parsed.upgrade:
         return "protocol upgrades (WebSocket and others) are not supported"
+    if parsed.chunked:
+        return "a chunked request body is not supported; declare its length with Content-Length"
     problem = target_problem(parsed.target)
     if problem is not None:
         return f"request target {parsed.target!r} {problem}"

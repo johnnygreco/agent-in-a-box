@@ -121,13 +121,21 @@ def no_observation(record, deadline: float) -> str:
     """Why there is nothing to attribute: how the run ended before the tool call returned,
     and the workload's own stderr when it left any."""
     by_kind = {event.kind: plain(event.payload) for event in record.events}
-    if "deadline_reached" in by_kind:
-        ending = f"ran out of time (deadline {deadline:g}s)"
+    if "agent.oversized" in by_kind:
+        ending = ("the tool call returned, but its observation line was longer than the "
+                  "supervisor accepts (agent.oversized)")
+    elif "agent.text" in by_kind:
+        ending = ("the tool call returned, but the harness wrote a line that was not a JSON "
+                  "event (agent.text)")
+    elif "deadline_reached" in by_kind:
+        ending = f"ran out of time (deadline {deadline:g}s) before the tool call returned"
     elif "workload_exited" in by_kind:
-        ending = f"the workload exited with status {by_kind['workload_exited']['exit_status']}"
+        status = by_kind["workload_exited"]["exit_status"]
+        how = f"ended by signal {-status}" if status < 0 else f"exited with status {status}"
+        ending = f"the workload {how} before the tool call returned"
     else:
-        ending = "the workload was stopped"
-    text = f"no observation: {ending} before the tool call returned; nothing to attribute"
+        ending = "the workload was stopped before the tool call returned"
+    text = f"no observation: {ending}; nothing to attribute"
     if "agent.stderr" in by_kind:
         tail = by_kind["agent.stderr"]["text"].strip().splitlines()[-8:]
         text += "\nthe workload's stderr ends with:\n" + "\n".join(f"  | {line}" for line in tail)
@@ -157,8 +165,8 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
         return (f"the proxy refused it at the {last['name']} check: no permit matched, so "
                 "Cedar's default deny applied")
     if decisions and not receipts:
-        return ("allowed by the proxy, but the fixture left no receipt: the forward failed; "
-                "read the observation's status or error")
+        return ("allowed by the proxy, but the fixture left no receipt: it refused the request "
+                "before reading it, or the forward failed; read the observation's status or error")
     if decisions:
         if observation["ok"]:
             return "allowed by the proxy and answered by the fixture"
@@ -196,10 +204,14 @@ def answered_with(observation: dict, status: int) -> bool:
 
 
 def reached_the_fixture(observation: dict) -> bool:
-    """A 403 with no proxy decision, or the fixture's refusal text in the output, can only
-    be the fixture's own answer to a request that did not come through the proxy: the
-    connection itself succeeded."""
-    return REFUSAL in observation["output"] or answered_with(observation, 403)
+    """A 403 with no proxy decision is the fixture's own answer to a request that did not
+    come through the proxy: the connection itself succeeded. So is the fixture's refusal
+    sentence as a whole line of the output, which is how curl prints the answer's body
+    when it is not told to fail on it. A command that merely prints the sentence, or
+    reads the fixture's source, would be taken for one; the status and exit code are the
+    firmer evidence."""
+    body_line = REFUSAL in observation["output"].splitlines()
+    return body_line or answered_with(observation, 403)
 
 
 def gateway(args: argparse.Namespace) -> int:

@@ -11,6 +11,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 CLI = [sys.executable, "-m", "agent_in_a_box.experiments.cli"]
 
 
@@ -66,15 +68,26 @@ def test_an_uncontained_direct_probe_is_reported_as_having_reached_the_fixture(t
 def test_a_run_that_ends_before_the_tool_call_returns_is_reported_not_crashed(tmp_path):
     result = probe(tmp_path, "--deadline", "2", "--bash", "sleep 8")
     assert result.returncode == 3, result.stdout + result.stderr
-    assert "no observation: ran out of time (deadline 2s)" in result.stdout
+    assert "no observation: ran out of time (deadline 2s) before the tool call returned" in (
+        result.stdout)
     assert "Traceback" not in result.stderr
 
 
-def test_a_malformed_url_is_an_observation_not_a_harness_crash(tmp_path):
-    result = probe(tmp_path, "--http", "GET", "not-a-url")
+@pytest.mark.parametrize("url", ["not-a-url", "http://reference.fixture/a b",
+                                 "file:///etc/hostname"])
+def test_a_bad_url_is_an_observation_not_a_harness_crash(tmp_path, url):
+    result = probe(tmp_path, "--http", "GET", url)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "observation: not ok" in result.stdout and "unknown url type" in result.stdout
+    assert "observation: not ok" in result.stdout and "request failed" in result.stdout
     assert "layer: no proxy event and no receipt" in result.stdout
+
+
+def test_a_workload_that_dies_is_reported_with_its_signal_and_stderr(tmp_path):
+    result = probe(tmp_path, "--bash", "kill -9 $PPID")
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "no observation: the workload ended by signal 9 before the tool call returned" in (
+        result.stdout)
+    assert "Traceback" not in result.stderr
 
 
 def test_an_unknown_policy_or_variant_name_is_refused_by_the_parser(tmp_path):

@@ -61,9 +61,9 @@ def test_allowed_with_a_shell_command_names_the_exit_status_not_none():
         "the application answered, and the program exited 22: nothing refused it")
 
 
-def test_allowed_without_a_receipt_is_a_failed_forward_not_the_kernel():
+def test_allowed_without_a_receipt_is_the_fixture_or_the_forward_not_the_kernel():
     text = layer(NOT_OK, [ALLOWED], [])
-    assert text.startswith("allowed by the proxy, but the fixture left no receipt")
+    assert text.startswith("allowed by the proxy, but the fixture left no receipt: it refused")
 
 
 def test_no_event_and_ok_is_the_kernel_permitting():
@@ -79,6 +79,15 @@ def test_a_403_with_no_decision_means_the_request_reached_the_fixture():
     for observation in (via_urllib, via_curl, printed_body):
         assert layer(observation, [], []).startswith(
             "no proxy event: the request reached the fixture directly")
+
+
+def test_reading_the_fixtures_source_is_not_taken_for_reaching_the_fixture():
+    """The refusal sentence counts only as a whole output line, which is how curl prints the
+    body; a grep or cat of the course's own source carries it with a prefix."""
+    source_read = {"ok": True, "detail": {"exit_status": 0},
+                   "output": 'fixture_service.py:40:REFUSAL = "this fixture answers only the '
+                             'run\'s proxy"'}
+    assert layer(source_read, [], []) == "no proxy event: the kernel permitted the operation"
 
 
 def test_a_407_with_no_decision_means_the_request_reached_the_proxy_without_credential():

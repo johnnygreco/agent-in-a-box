@@ -188,6 +188,11 @@ def test_a_member_that_exited_during_the_check_is_not_counted_as_unconfined(monk
     assert inspect.member_checks(1)[0].observed == "all"
     monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [2**22 + 7])
     assert inspect.member_checks(1)[0].observed == "no process found"
+    # A live process whose status cannot be read is still counted, and counts against.
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [os.getpid()])
+    monkeypatch.setattr(inspect, "status_fields", lambda pid: {})
+    check = inspect.member_checks(1)[0]
+    assert check.observed == "1 of 1 without" and not check.passed
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="the init's signal path is checked on Linux")
@@ -196,7 +201,7 @@ def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status():
     workload, and the init's exit status is the workload's (128 + 15)."""
     code = (f"from {LAUNCHER} import serve_as_init, start_workload; import sys; "
             "sys.exit(serve_as_init(start_workload(['/bin/sleep', '30'])))")
-    init = subprocess.Popen([sys.executable, "-c", code])
+    init = subprocess.Popen([sys.executable, "-c", code], start_new_session=True)
     try:
         deadline = time.monotonic() + 10
         while not catches_sigterm(init.pid):
@@ -207,8 +212,8 @@ def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status():
         # sleep is gone.
         assert init.wait(timeout=10) == 143
     finally:
-        if init.poll() is None:
-            init.kill()
+        if init.poll() is None:  # on failure, end the whole session, sleep included
+            os.killpg(init.pid, signal.SIGKILL)
 
 
 def test_doctor_reports_an_option_an_old_bubblewrap_lacks(monkeypatch):

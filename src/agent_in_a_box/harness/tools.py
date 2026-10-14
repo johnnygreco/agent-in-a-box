@@ -11,8 +11,10 @@ from __future__ import annotations
 import os
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
+from http.client import HTTPException  # not `import http`: the `http` tool below shadows it
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +81,7 @@ def bash(args: Mapping[str, Any]) -> Observation:
     timeout = float(args.get("timeout", 30))
     try:
         proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True,
-                              timeout=timeout)
+                              errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + (exc.stderr or "")
         return Observation("bash", False, _bounded(str(output)), {"timed_out": True})
@@ -95,20 +97,21 @@ def http(args: Mapping[str, Any]) -> Observation:
     url = str(args["url"])
     body = args.get("body")
     detail: dict[str, Any] = {"method": method, "url": url, "status": None, "refused_by": None}
+    if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        # Other schemes (file:, data:) would be served locally, bypassing the proxy.
+        detail["error"] = "only http and https URLs go through the proxy"
+        return Observation("http", False, f"request failed: {detail['error']}", detail)
     try:
         request = urllib.request.Request(url, method=method,
                                          data=str(body).encode() if body is not None else None)
-    except ValueError as exc:  # not a URL at all
-        detail["error"] = str(exc)
-        return Observation("http", False, f"request failed: {exc}", detail)
-    try:
         with urllib.request.urlopen(request, timeout=15) as response:
             detail["status"] = response.status
             text = response.read().decode(errors="replace")
     except urllib.error.HTTPError as exc:
         detail.update(status=exc.code, refused_by=exc.headers.get("X-Agent-In-A-Box-Refused"))
         text = exc.read().decode(errors="replace")
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, OSError, HTTPException, ValueError) as exc:
+        # A dead proxy, a malformed URL or method, or a broken response: all observations.
         detail["error"] = str(getattr(exc, "reason", exc))
         return Observation("http", False, f"request failed: {detail['error']}", detail)
     return Observation("http", 200 <= detail["status"] < 300, _bounded(text), detail)

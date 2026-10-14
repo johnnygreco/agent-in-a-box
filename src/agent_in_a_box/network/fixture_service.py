@@ -4,9 +4,12 @@
     POST /collect     a sink that records what it received and acknowledges
     anything else     404 (other methods on /reference: 405)
 
-Every request that reaches the handler is appended to a receipts file before
-it is answered. That file is the evidence that a refused request never
+Every request the fixture accepts for reading is appended to a receipts file
+before it is answered. That file is the evidence that a refused request never
 reached the fixture: the proxy refuses before forwarding, so no receipt exists.
+Three refusals happen before reading and leave no receipt either: a request
+without the run's stamp (403), one whose body length is not declared or not a
+number (411, 400), and one whose declared body is over MAX_BODY (413).
 
     AGENT_IN_A_BOX_FIXTURE_STAMP=... \
     python -m agent_in_a_box.network.fixture_service --variant default --receipts PATH
@@ -78,15 +81,26 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
         def _receive(self) -> bytes | None:
             """Read the body and log the receipt before anything is answered.
 
-            A body past MAX_BODY is refused with 413 before any of it is read, with
-            no receipt, and the connection closes so the unread bytes cannot be taken
-            for the next request.
+            A body whose length is undeclared (Transfer-Encoding), not a number, or past
+            MAX_BODY is refused before any of it is read, with no receipt, and the
+            connection closes so unread bytes cannot be taken for the next request.
             """
-            length = int(self.headers.get("Content-Length") or 0)
+            self.close_connection = True
+            if "Transfer-Encoding" in self.headers:
+                self._send(411, "declare the body length with Content-Length\n")
+                return None
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                self._send(400, "Content-Length is not a number\n")
+                return None
+            if length < 0:
+                self._send(400, "Content-Length is negative\n")
+                return None
             if length > MAX_BODY:
-                self.close_connection = True
                 self._send(413, "body too large\n")
                 return None
+            self.close_connection = False
             body = self.rfile.read(length) if length else b""
             receipts.append(self.command, self.path, self.headers.get("Host"), body)
             return body

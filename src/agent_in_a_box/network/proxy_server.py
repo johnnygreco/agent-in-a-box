@@ -99,6 +99,7 @@ def parse(flow: http.HTTPFlow, scheme: str) -> ParsedRequest:
         method=request.method, scheme=scheme, host=request.host, port=request.port,
         target=request.path, host_header=request.host_header,
         http_version=request.http_version, upgrade="upgrade" in request.headers,
+        chunked="transfer-encoding" in request.headers,
     )
 
 
