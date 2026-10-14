@@ -21,6 +21,7 @@ from typing import Any
 from agent_in_a_box.contracts import Observation
 
 MAX_OUTPUT = 8192
+BASH_TIMEOUT_S = 30.0  # the bash tool's own timer, unless the call names one
 
 
 def _bounded(text: str) -> str:
@@ -83,7 +84,7 @@ def search(args: Mapping[str, Any]) -> Observation:
 def bash(args: Mapping[str, Any]) -> Observation:
     """Run a real shell command. Children inherit whatever restrictions apply."""
     command = str(args["command"])
-    timeout = float(args.get("timeout", 30))
+    timeout = float(args.get("timeout", BASH_TIMEOUT_S))
     try:
         proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True,
                               errors="replace", timeout=timeout)

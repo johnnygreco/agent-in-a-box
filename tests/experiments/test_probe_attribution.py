@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agent_in_a_box.experiments import cli
 from agent_in_a_box.experiments.cli import layer, no_observation
+from agent_in_a_box.harness.tools import BASH_TIMEOUT_S
 
 
 def decision(label, name, determining=(), cedar=True, detail="why"):
@@ -112,6 +114,22 @@ def test_a_command_ended_by_the_bash_tools_timeout_is_named_as_such():
     assert layer(fetched_first, [ALLOWED], [RECEIPT]) == (
         "allowed by the proxy; the application answered, and the bash tool's own timeout (30 s) "
         "ended the command before it exited: nothing refused it")
+    still_uploading = {"ok": False, "output": "", "detail": {"timed_out": True}}
+    assert layer(still_uploading, [ALLOWED], []) == (
+        "allowed by the proxy, but the bash tool's own timeout (30 s) ended the command before "
+        "the fixture had read the request, so no receipt was written")
+
+
+def test_an_answer_that_could_not_be_read_names_the_error_not_an_exit_status():
+    unread = {"ok": False, "output": "", "detail": {"status": None, "error": "timed out"}}
+    assert layer(unread, [ALLOWED], [RECEIPT]).endswith(
+        "the application answered, but reading the answer failed: timed out: nothing refused it")
+
+
+def test_the_probes_default_deadline_outlives_the_bash_tools_timer():
+    assert cli.DEFAULT_DEADLINE_S > BASH_TIMEOUT_S and cli.TIMER == "30 s"
+    short = record_of(("deadline_reached", {"deadline_s": 2}))
+    assert "cannot see such an observation" in no_observation(short, 2)
 
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():
@@ -129,7 +147,7 @@ def test_the_lifecycle_decides_how_a_run_ended_and_a_refused_line_is_reported_be
     text = no_observation(deadline_and_text, 2)
     assert text.startswith("no observation: ran out of time (deadline 2s)")
     assert text.endswith("the supervisor refused as not a JSON event")
-    returned = record_of(("agent.oversized", {"bytes": 20000}),
+    returned = record_of(("agent.oversized", {"characters": 20000}),
                          ("workload_exited", {"exit_status": 0}))
     assert "the supervisor refused the harness's observation line as oversized" in (
         no_observation(returned, 30))

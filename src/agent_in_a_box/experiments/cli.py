@@ -29,9 +29,12 @@ from pathlib import Path
 from agent_in_a_box import composition
 from agent_in_a_box.contracts import LaunchRefused, plain
 from agent_in_a_box.experiments import bundle as bundles
+from agent_in_a_box.harness.tools import BASH_TIMEOUT_S
 from agent_in_a_box.network.fixture_service import REFUSAL, VARIANT_DIR
 
 DEFAULT_STATE = composition.REPO_ROOT / ".agent-in-a-box"
+TIMER = f"{BASH_TIMEOUT_S:g} s"  # how the bash tool's own timer is named in the probe's report
+DEFAULT_DEADLINE_S = BASH_TIMEOUT_S + 15  # above the tool's timer, so its observation arrives
 
 
 def runtime_for(args: argparse.Namespace) -> composition.Runtime:
@@ -127,6 +130,9 @@ def no_observation(record, deadline: float) -> str:
                     else "not a JSON event" if "agent.text" in by_kind else None)
     if "deadline_reached" in by_kind:
         ending = f"ran out of time (deadline {deadline:g}s) before the tool call returned"
+        if deadline < BASH_TIMEOUT_S:
+            ending += (f"; the bash tool stops a command only after {TIMER}, so a deadline "
+                       "below that cannot see such an observation")
     elif "workload_exited" not in by_kind:
         ending = "the workload was stopped before the tool call returned"
     elif by_kind["workload_exited"]["exit_status"] == 0 and refused_line:
@@ -172,6 +178,9 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
         return (f"the proxy refused it at the {last['name']} check: no permit matched, so "
                 "Cedar's default deny applied")
     if decisions and not receipts:
+        if observation["detail"].get("timed_out"):
+            return (f"allowed by the proxy, but the bash tool's own timeout ({TIMER}) ended the "
+                    "command before the fixture had read the request, so no receipt was written")
         return ("allowed by the proxy, but the fixture left no receipt: the proxy refused the "
                 "body's size itself (its own 413), the fixture refused the request before "
                 "reading it, or the forward failed; read the observation's status or error")
@@ -180,8 +189,8 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
             return "allowed by the proxy and answered by the fixture"
         return f"allowed by the proxy; {application_answer(observation)}: nothing refused it"
     if observation["detail"].get("timed_out"):
-        return ("no proxy event: the bash tool's own timeout (30 s) ended the command before "
-                "it exited; whatever it did first is in its output above")
+        return (f"no proxy event: the bash tool's own timeout ({TIMER}) ended the command "
+                "before it exited; whatever it did first is in its output above")
     if reached_the_fixture(observation):
         return ("no proxy event: the request reached the fixture directly, which refused it "
                 "for lacking the proxy's stamp. Nothing stood between the workload and the "
@@ -198,14 +207,15 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
 def application_answer(observation: dict) -> str:
     """What the application said, as the tool recorded it: a status for the http tool, or
     the program's exit status when a shell command carried the request."""
-    status = observation["detail"].get("status")
-    if status is not None:
-        return f"the application answered {status}"
-    if observation["detail"].get("timed_out"):
-        return ("the application answered, and the bash tool's own timeout (30 s) ended the "
-                "command before it exited")
-    exit_status = observation["detail"].get("exit_status")
-    return f"the application answered, and the program exited {exit_status}"
+    detail = observation["detail"]
+    if detail.get("status") is not None:
+        return f"the application answered {detail['status']}"
+    if detail.get("timed_out"):
+        return (f"the application answered, and the bash tool's own timeout ({TIMER}) ended "
+                "the command before it exited")
+    if detail.get("error"):
+        return f"the application answered, but reading the answer failed: {detail['error']}"
+    return f"the application answered, and the program exited {detail.get('exit_status')}"
 
 
 def answered_with(observation: dict, status: int) -> bool:
@@ -346,10 +356,11 @@ def main(argv: list[str] | None = None) -> int:
                          help="policy variant")
     probing.add_argument("--variant", default="default", help="fixture variant",
                          choices=sorted(path.stem for path in VARIANT_DIR.glob("*.json")))
-    probing.add_argument("--deadline", type=float, default=45.0,
-                         help="seconds the supervisor gives the run (default 45). The bash tool "
-                              "stops a command after 30 s on its own; keep this above that to "
-                              "see such an observation rather than a run that ran out of time")
+    probing.add_argument("--deadline", type=float, default=DEFAULT_DEADLINE_S,
+                         help=f"seconds the supervisor gives the run (default "
+                              f"{DEFAULT_DEADLINE_S:g}). The bash tool stops a command after "
+                              f"{TIMER} on its own; keep this above that to see such an "
+                              "observation rather than a run that ran out of time")
     what = probing.add_mutually_exclusive_group(required=True)
     what.add_argument("--bash", metavar="COMMAND",
                       help="a shell command; {direct} becomes the fixture's own host:port")
