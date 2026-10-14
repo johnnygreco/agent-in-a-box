@@ -94,9 +94,13 @@ def http(args: Mapping[str, Any]) -> Observation:
     method = str(args["method"])
     url = str(args["url"])
     body = args.get("body")
-    request = urllib.request.Request(url, data=str(body).encode() if body is not None else None,
-                                     method=method)
     detail: dict[str, Any] = {"method": method, "url": url, "status": None, "refused_by": None}
+    try:
+        request = urllib.request.Request(url, method=method,
+                                         data=str(body).encode() if body is not None else None)
+    except ValueError as exc:  # not a URL at all
+        detail["error"] = str(exc)
+        return Observation("http", False, f"request failed: {exc}", detail)
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             detail["status"] = response.status

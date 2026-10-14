@@ -131,6 +131,31 @@ def test_the_fixture_refuses_to_start_without_a_stamp(tmp_path):
     assert result.returncode != 0 and STAMP_ENV in result.stderr
 
 
+def raw_request(route, request: bytes) -> bytes:
+    with socket.create_connection((route.host, route.port), timeout=10) as sock:
+        sock.sendall(request)
+        return sock.recv(4096)
+
+
+def test_the_fixture_refuses_a_stamp_with_bytes_past_ascii_without_a_traceback(lab):
+    """The header arrives as latin-1 text; comparing it as bytes cannot raise."""
+    _, receipts, route = lab
+    reply = raw_request(route, b"GET /reference HTTP/1.1\r\nHost: reference.fixture\r\n"
+                               b"X-Agent-In-A-Box-Stamp: s\xff\xe1\r\n\r\n")
+    assert reply.startswith(b"HTTP/1.1 403") and receipts_of(receipts) == []
+
+
+def test_the_fixture_refuses_an_oversize_body_before_reading_it(tmp_path):
+    """A correctly stamped request whose body would exceed the fixture's limit gets 413
+    before any of the body is read, leaves no receipt, and closes the connection."""
+    receipts = tmp_path / "receipts.jsonl"
+    with fixture_service("default", receipts, "known-stamp") as route:
+        reply = raw_request(route, b"POST /collect HTTP/1.1\r\nHost: reference.fixture\r\n"
+                                   b"X-Agent-In-A-Box-Stamp: known-stamp\r\n"
+                                   b"Content-Length: 2000000\r\n\r\nshort")
+    assert reply.startswith(b"HTTP/1.1 413") and receipts_of(receipts) == []
+
+
 def test_a_direct_request_to_the_fixture_without_the_stamp_leaves_no_receipt(lab):
     """The fixture answers only what the run's proxy forwarded."""
     _, receipts, route = lab

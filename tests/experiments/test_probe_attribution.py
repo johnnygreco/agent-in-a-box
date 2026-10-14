@@ -28,8 +28,9 @@ def test_a_protocol_refusal_is_before_cedar():
 
 
 def test_a_route_refusal_comes_after_cedar_allowed_the_connection():
-    text = layer(NOT_OK, [decision("refused", "route", cedar=False, detail="no route")], [])
-    assert text.startswith("Cedar allowed the connection, but the proxy derived no route")
+    text = layer(NOT_OK, [decision("refused", "route", cedar=False, detail="no transport")], [])
+    assert text == ("Cedar allowed the connection, but the proxy had no route for that endpoint: "
+                    "no transport")
 
 
 def test_a_forbid_names_the_determining_policies():
@@ -53,6 +54,13 @@ def test_allowed_with_an_application_status():
                                                         "nothing refused it")
 
 
+def test_allowed_with_a_shell_command_names_the_exit_status_not_none():
+    via_curl = {"ok": False, "output": "curl: (22) The requested URL returned error: 404",
+                "detail": {"exit_status": 22}}
+    assert layer(via_curl, [ALLOWED], [RECEIPT]).endswith(
+        "the application answered, and the program exited 22: nothing refused it")
+
+
 def test_allowed_without_a_receipt_is_a_failed_forward_not_the_kernel():
     text = layer(NOT_OK, [ALLOWED], [])
     assert text.startswith("allowed by the proxy, but the fixture left no receipt")
@@ -66,9 +74,18 @@ def test_a_403_with_no_decision_means_the_request_reached_the_fixture():
     via_urllib = {"ok": False, "output": "", "detail": {"status": 403, "refused_by": None}}
     via_curl = {"ok": False, "output": "curl: (22) The requested URL returned error: 403",
                 "detail": {"exit_status": 22}}
-    for observation in (via_urllib, via_curl):
+    printed_body = {"ok": True, "output": "this fixture answers only the run's proxy",
+                    "detail": {"exit_status": 0}}  # curl without --fail prints the 403's body
+    for observation in (via_urllib, via_curl, printed_body):
         assert layer(observation, [], []).startswith(
             "no proxy event: the request reached the fixture directly")
+
+
+def test_a_407_with_no_decision_means_the_request_reached_the_proxy_without_credential():
+    via_curl = {"ok": False, "output": "curl: (22) The requested URL returned error: 407",
+                "detail": {"exit_status": 22}}
+    assert layer(via_curl, [], []).startswith(
+        "no proxy event: the request reached the proxy without the run's credential")
 
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():

@@ -3,9 +3,10 @@
 Written from CURRICULUM.md's controlled probe table and PLAN.md's native
 boundary acceptance list, not from any backend's observed behavior. A backend
 that is not implemented, or whose doctor refuses on this host, is skipped
-with its reason. None of these probes has run natively yet (STATUS.md);
-macOS Seatbelt defines the expectations, and a Linux gap is marked
-expected-fail with a reason recorded in reference/platform-differences.md.
+with its reason. STATUS.md's "Last native validation" records where these
+probes have passed; macOS Seatbelt defines the expectations, and a Linux
+gap would be marked expected-fail with a reason recorded in
+reference/platform-differences.md.
 """
 
 from __future__ import annotations

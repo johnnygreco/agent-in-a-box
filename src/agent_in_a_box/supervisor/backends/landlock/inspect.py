@@ -69,16 +69,18 @@ def init_checks(init_pid: int, launcher: str) -> list[ProbeResult]:
 
 def member_checks(pid_namespace: int) -> list[ProbeResult]:
     """Every process in the namespace, init included, has no-new-privileges and seccomp on."""
-    members = namespace_members(pid_namespace)
-    unconfined = []
-    for pid in members:
+    checked, unconfined = 0, []
+    for pid in namespace_members(pid_namespace):
         fields = status_fields(pid)
+        if not fields and not os.path.exists(f"/proc/{pid}"):
+            continue  # it exited between the listing and the read
+        checked += 1
         if (fields.get("NoNewPrivs"), fields.get("Seccomp")) != ("1", "2"):
             unconfined.append(pid)
-    if not members:
+    if not checked:
         observed = "no process found"
     elif unconfined:
-        observed = f"{len(unconfined)} of {len(members)} without"
+        observed = f"{len(unconfined)} of {checked} without"
     else:
         observed = "all"
     return [ProbeResult("every process in the namespace has no-new-privileges and seccomp",

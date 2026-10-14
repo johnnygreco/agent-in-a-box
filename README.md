@@ -52,7 +52,7 @@ Probe the boundary yourself. One bash command or HTTP request runs as the worklo
 ```sh
 uv run agent-in-a-box probe --bash 'cat measurements.csv'
 uv run agent-in-a-box probe --http POST http://reference.fixture/reference
-uv run agent-in-a-box probe --bash "curl -sS --noproxy '*' --max-time 5 http://{direct}/reference"
+uv run agent-in-a-box probe --bash "curl -sS --fail --noproxy '*' --max-time 5 http://{direct}/reference"
 ```
 
 `uv run agent-in-a-box chapter5 --test-backend` runs chapter 5's ladder the same way: the POST and PUT counterexamples, the repair, the deny-all repair, and a deliberate "no conclusion".

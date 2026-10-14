@@ -37,6 +37,7 @@ VARIANT_DIR = REPO_ROOT / "fixtures" / "reference"
 MAX_BODY = 1 << 20
 STAMP_ENV = "AGENT_IN_A_BOX_FIXTURE_STAMP"
 STAMP_HEADER = "X-Agent-In-A-Box-Stamp"
+REFUSAL = "this fixture answers only the run's proxy"
 
 
 def load_variant(name: str) -> dict:
@@ -74,9 +75,18 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
         def log_message(self, format: str, *args: object) -> None:  # quiet
             pass
 
-        def _receive(self) -> bytes:
-            """Read the body and log the receipt before anything is answered."""
-            length = min(int(self.headers.get("Content-Length") or 0), MAX_BODY)
+        def _receive(self) -> bytes | None:
+            """Read the body and log the receipt before anything is answered.
+
+            A body past MAX_BODY is refused with 413 before any of it is read, with
+            no receipt, and the connection closes so the unread bytes cannot be taken
+            for the next request.
+            """
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_BODY:
+                self.close_connection = True
+                self._send(413, "body too large\n")
+                return None
             body = self.rfile.read(length) if length else b""
             receipts.append(self.command, self.path, self.headers.get("Host"), body)
             return body
@@ -95,9 +105,11 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
             if not hmac.compare_digest(presented, stamp.encode()):
                 # Not from this run's proxy: answer without reading or recording anything.
                 self.close_connection = True
-                self._send(403, "this fixture answers only the run's proxy\n")
+                self._send(403, REFUSAL + "\n")
                 return
             body = self._receive()
+            if body is None:
+                return
             path = self.path.split("?", 1)[0]
             if path == "/reference" and self.command in ("GET", "HEAD"):
                 # The injection variant names this server's own address, known only now.

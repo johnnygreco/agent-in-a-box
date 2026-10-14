@@ -1,8 +1,10 @@
 """The agent-in-a-box command line.
 
     agent-in-a-box doctor [--test-backend]
-    agent-in-a-box probe [--test-backend] [--policy P0] [--variant default]
+    agent-in-a-box probe [--test-backend] [--policy P0] [--variant default] [--deadline S]
                          (--bash COMMAND | --http METHOD URL)
+        exits 0 with an attributed observation, 1 when the run was refused, 2 for a
+        usage error, and 3 when the run ended before the tool call returned
     agent-in-a-box gateway serve [--port N] [--test-backend]
     agent-in-a-box trailer|chapter5 [--test-backend] [--session NAME] [--gateway STATE_FILE]
     agent-in-a-box site-data --published [--bundles DIR] [--out DIR]
@@ -24,8 +26,9 @@ import sys
 from pathlib import Path
 
 from agent_in_a_box import composition
-from agent_in_a_box.contracts import plain
+from agent_in_a_box.contracts import LaunchRefused, plain
 from agent_in_a_box.experiments import bundle as bundles
+from agent_in_a_box.network.fixture_service import REFUSAL, VARIANT_DIR
 
 DEFAULT_STATE = composition.REPO_ROOT / ".agent-in-a-box"
 
@@ -82,8 +85,12 @@ def probe(args: argparse.Namespace) -> int:
         command = args.bash.replace("{direct}", f"{route.host}:{route.port}")
         return {"name": "bash", "arguments": {"command": command}}
 
-    record = scenario.run(runtime, schema.load_variant(args.policy), variant=args.variant,
-                          probe=tool_call, deadline_s=args.deadline)
+    try:
+        record = scenario.run(runtime, schema.load_variant(args.policy), variant=args.variant,
+                              probe=tool_call, deadline_s=args.deadline)
+    except LaunchRefused as refusal:
+        print(f"refused: {refusal}")
+        return 1
     print(f"run {record.run_id}: {record.status} [enforcement: {record.enforcement}; "
           f"policy {args.policy}; fixture variant {args.variant}]")
     if record.status != "completed":
@@ -92,11 +99,8 @@ def probe(args: argparse.Namespace) -> int:
     by_kind = {kind: [plain(e.payload) for e in record.events if e.kind == kind]
                for kind in ("agent.observation", "proxy.decision", "fixture.receipt")}
     if not by_kind["agent.observation"]:
-        kinds = [event.kind for event in record.events]
-        ending = "deadline_reached" if "deadline_reached" in kinds else kinds[-1]
-        print(f"no observation: the run ended with {ending} before the tool call returned "
-              f"(deadline {args.deadline:g}s); nothing to attribute")
-        return 2
+        print(no_observation(record, args.deadline))
+        return 3
     observation = by_kind["agent.observation"][0]["data"]["observation"]
     print(f"observation: {'ok' if observation['ok'] else 'not ok'}; "
           f"detail {json.dumps(observation['detail'])}")
@@ -111,6 +115,23 @@ def probe(args: argparse.Namespace) -> int:
     print(f"fixture receipts: {len(by_kind['fixture.receipt'])}")
     print(f"layer: {layer(observation, by_kind['proxy.decision'], by_kind['fixture.receipt'])}")
     return 0
+
+
+def no_observation(record, deadline: float) -> str:
+    """Why there is nothing to attribute: how the run ended before the tool call returned,
+    and the workload's own stderr when it left any."""
+    by_kind = {event.kind: plain(event.payload) for event in record.events}
+    if "deadline_reached" in by_kind:
+        ending = f"ran out of time (deadline {deadline:g}s)"
+    elif "workload_exited" in by_kind:
+        ending = f"the workload exited with status {by_kind['workload_exited']['exit_status']}"
+    else:
+        ending = "the workload was stopped"
+    text = f"no observation: {ending} before the tool call returned; nothing to attribute"
+    if "agent.stderr" in by_kind:
+        tail = by_kind["agent.stderr"]["text"].strip().splitlines()[-8:]
+        text += "\nthe workload's stderr ends with:\n" + "\n".join(f"  | {line}" for line in tail)
+    return text
 
 
 def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str:
@@ -128,7 +149,7 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
         if last["name"] == "protocol":
             return f"the proxy refused it before asking Cedar: {last['detail']}"
         if last["name"] == "route":
-            return ("Cedar allowed the connection, but the proxy derived no route for that "
+            return ("Cedar allowed the connection, but the proxy had no route for that "
                     f"endpoint: {last['detail']}")
         if determining:
             return (f"the proxy refused it at the {last['name']} check: the determining "
@@ -141,25 +162,44 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
     if decisions:
         if observation["ok"]:
             return "allowed by the proxy and answered by the fixture"
-        return (f"allowed by the proxy; the application answered "
-                f"{observation['detail'].get('status')}: nothing refused it")
-    if observation["ok"]:
-        return "no proxy event: the kernel permitted the operation"
+        return f"allowed by the proxy; {application_answer(observation)}: nothing refused it"
     if reached_the_fixture(observation):
         return ("no proxy event: the request reached the fixture directly, which refused it "
                 "for lacking the proxy's stamp. Nothing stood between the workload and the "
                 "host network")
+    if answered_with(observation, 407):
+        return ("no proxy event: the request reached the proxy without the run's credential "
+                "and was answered 407; nothing was decided or recorded")
+    if observation["ok"]:
+        return "no proxy event: the kernel permitted the operation"
     return ("no proxy event and no receipt: the kernel stopped it, or the program itself "
             "failed; read the errno or exit status")
 
 
-def reached_the_fixture(observation: dict) -> bool:
-    """An HTTP 403 with no proxy decision can only be the fixture's own refusal of a
-    request that did not come through the proxy: the connection itself succeeded."""
+def application_answer(observation: dict) -> str:
+    """What the application said, as the tool recorded it: a status for the http tool, or
+    the program's exit status when a shell command carried the request."""
+    status = observation["detail"].get("status")
+    if status is not None:
+        return f"the application answered {status}"
+    exit_status = observation["detail"].get("exit_status")
+    return f"the application answered, and the program exited {exit_status}"
+
+
+def answered_with(observation: dict, status: int) -> bool:
+    """Whether a server answered `status` with no proxy decision involved: the http tool
+    records the status, and curl under --fail exits 22 and names it."""
     detail = observation["detail"]
-    if detail.get("status") == 403 and not detail.get("refused_by"):
+    if detail.get("status") == status and not detail.get("refused_by"):
         return True
-    return "403" in observation["output"] and detail.get("exit_status") == 22  # curl --fail
+    return str(status) in observation["output"] and detail.get("exit_status") == 22
+
+
+def reached_the_fixture(observation: dict) -> bool:
+    """A 403 with no proxy decision, or the fixture's refusal text in the output, can only
+    be the fixture's own answer to a request that did not come through the proxy: the
+    connection itself succeeded."""
+    return REFUSAL in observation["output"] or answered_with(observation, 403)
 
 
 def gateway(args: argparse.Namespace) -> int:
@@ -278,7 +318,8 @@ def main(argv: list[str] | None = None) -> int:
         "probe", help="run one bash command or HTTP request as the workload, then attribute it"))
     probing.add_argument("--policy", default="P0", choices=schema.variant_names(),
                          help="policy variant")
-    probing.add_argument("--variant", default="default", help="fixture variant")
+    probing.add_argument("--variant", default="default", help="fixture variant",
+                         choices=sorted(path.stem for path in VARIANT_DIR.glob("*.json")))
     probing.add_argument("--deadline", type=float, default=30.0)
     what = probing.add_mutually_exclusive_group(required=True)
     what.add_argument("--bash", metavar="COMMAND",

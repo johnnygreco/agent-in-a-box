@@ -65,8 +65,8 @@ class Sandbox:
 def read_json(descriptor: int, timeout_s: float) -> dict | None:
     """Read one JSON document from a pipe; None if none arrives within `timeout_s`.
 
-    This stops at the end of the document rather than at EOF, so a copy of the
-    write end still held by some process in the sandbox could not stall it.
+    This stops at the end of the document rather than at EOF, so it does not
+    depend on every copy of the write end having been closed.
     """
     data = b""
     deadline = time.monotonic() + timeout_s
@@ -235,5 +235,7 @@ class LandlockBackend:
             verified=not survivors,
             limits=("every process the workload starts stays in its PID namespace, or in one "
                     "nested inside it; when the namespace's init stops, the kernel stops all "
-                    "of them",),
+                    "of them",
+                    "the survivor scan keys on the namespace's inode number, which the kernel "
+                    "can reuse once the namespace is gone; it is read right after the stop",),
         )

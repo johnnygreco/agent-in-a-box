@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import json
+import os
 import signal
 import struct
 import subprocess
@@ -179,8 +180,18 @@ def catches_sigterm(pid: int) -> bool:
     return bool(int(fields.get("SigCgt", "0"), 16) & (1 << (signal.SIGTERM - 1)))
 
 
+def test_a_member_that_exited_during_the_check_is_not_counted_as_unconfined(monkeypatch):
+    confined = {"NoNewPrivs": "1", "Seccomp": "2"}
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [os.getpid(), 2**22 + 7])
+    monkeypatch.setattr(inspect, "status_fields",
+                        lambda pid: confined if pid == os.getpid() else {})
+    assert inspect.member_checks(1)[0].observed == "all"
+    monkeypatch.setattr(inspect, "namespace_members", lambda namespace: [2**22 + 7])
+    assert inspect.member_checks(1)[0].observed == "no process found"
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="the init's signal path is checked on Linux")
-def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status(tmp_path):
+def test_the_init_forwards_a_signal_and_ends_with_the_workloads_status():
     """serve_as_init on its own, outside any sandbox: SIGTERM to the init reaches the
     workload, and the init's exit status is the workload's (128 + 15)."""
     code = (f"from {LAUNCHER} import serve_as_init, start_workload; import sys; "

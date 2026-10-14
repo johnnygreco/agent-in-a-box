@@ -48,7 +48,13 @@ class Enforcer:
         print(f"READY {port}", flush=True)
 
     def http_connect(self, flow: http.HTTPFlow) -> None:
-        """CONNECT requests are always refused, by the protocol check."""
+        """CONNECT requests are always refused, by the protocol check.
+
+        A CONNECT that carried the credential marks its client connection as
+        authenticated in mitmproxy before this refusal, so later requests on that
+        same connection are not asked for the credential again. The caller already
+        presented it, so nothing is lost; do not rely on a 407 per request there.
+        """
         if flow.response is not None:
             return  # already answered 407: the request carried no run credential
         decision = self.decision_path.decide(parse(flow, scheme="connect"))
