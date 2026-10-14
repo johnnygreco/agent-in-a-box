@@ -115,9 +115,9 @@ def test_a_command_ended_by_the_bash_tools_timeout_is_named_as_such():
         "allowed by the proxy; the application answered, and the bash tool's own timeout (30 s) "
         "ended the command before it exited: nothing refused it")
     still_uploading = {"ok": False, "output": "", "detail": {"timed_out": True}}
-    assert layer(still_uploading, [ALLOWED], []) == (
+    assert layer(still_uploading, [ALLOWED], []).startswith(
         "allowed by the proxy, but the bash tool's own timeout (30 s) ended the command before "
-        "the fixture had read the request, so no receipt was written")
+        "the fixture had read the request, unless the output above shows the proxy's own 413")
 
 
 def test_an_answer_that_could_not_be_read_names_the_error_not_an_exit_status():
@@ -130,6 +130,10 @@ def test_the_probes_default_deadline_outlives_the_bash_tools_timer():
     assert cli.DEFAULT_DEADLINE_S > BASH_TIMEOUT_S and cli.TIMER == "30 s"
     short = record_of(("deadline_reached", {"deadline_s": 2}))
     assert "cannot see such an observation" in no_observation(short, 2)
+    # Equal to the timer is not enough either, since the clock starts before the harness.
+    assert "cannot see such an observation" in no_observation(short, BASH_TIMEOUT_S)
+    # The cue is about the bash tool; an http probe has no such timer.
+    assert "cannot see such an observation" not in no_observation(short, 2, bash=False)
 
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():

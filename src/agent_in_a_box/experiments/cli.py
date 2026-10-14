@@ -103,7 +103,7 @@ def probe(args: argparse.Namespace) -> int:
     by_kind = {kind: [plain(e.payload) for e in record.events if e.kind == kind]
                for kind in ("agent.observation", "proxy.decision", "fixture.receipt")}
     if not by_kind["agent.observation"]:
-        print(no_observation(record, args.deadline))
+        print(no_observation(record, args.deadline, bash=args.bash is not None))
         return 3
     observation = by_kind["agent.observation"][0]["data"]["observation"]
     print(f"observation: {'ok' if observation['ok'] else 'not ok'}; "
@@ -121,7 +121,7 @@ def probe(args: argparse.Namespace) -> int:
     return 0
 
 
-def no_observation(record, deadline: float) -> str:
+def no_observation(record, deadline: float, bash: bool = True) -> str:
     """Why there is nothing to attribute. The lifecycle events decide how the run ended;
     a line the supervisor refused is reported beside that, since the workload's own
     output is agent-reported and must not override a lifecycle fact."""
@@ -130,9 +130,9 @@ def no_observation(record, deadline: float) -> str:
                     else "not a JSON event" if "agent.text" in by_kind else None)
     if "deadline_reached" in by_kind:
         ending = f"ran out of time (deadline {deadline:g}s) before the tool call returned"
-        if deadline < BASH_TIMEOUT_S:
+        if bash and deadline <= BASH_TIMEOUT_S:
             ending += (f"; the bash tool stops a command only after {TIMER}, so a deadline "
-                       "below that cannot see such an observation")
+                       "that is not above that cannot see such an observation")
     elif "workload_exited" not in by_kind:
         ending = "the workload was stopped before the tool call returned"
     elif by_kind["workload_exited"]["exit_status"] == 0 and refused_line:
@@ -180,7 +180,9 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
     if decisions and not receipts:
         if observation["detail"].get("timed_out"):
             return (f"allowed by the proxy, but the bash tool's own timeout ({TIMER}) ended the "
-                    "command before the fixture had read the request, so no receipt was written")
+                    "command before the fixture had read the request, unless the output above "
+                    "shows the proxy's own 413 or a failed forward first; no receipt was written "
+                    "either way")
         return ("allowed by the proxy, but the fixture left no receipt: the proxy refused the "
                 "body's size itself (its own 413), the fixture refused the request before "
                 "reading it, or the forward failed; read the observation's status or error")

@@ -100,6 +100,12 @@ def test_an_https_url_is_refused_at_the_proxys_tunnel_with_a_recorded_decision(t
         result.stdout)
 
 
+def test_the_help_states_the_deadline_default_and_the_bash_timer():
+    result = subprocess.run([*CLI, "probe", "--help"], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0 and "(default 45)" in result.stdout
+    assert "after 30 s" in result.stdout
+
+
 def test_an_unknown_policy_or_variant_name_is_refused_by_the_parser(tmp_path):
     result = probe(tmp_path, "--policy", "P9", "--bash", "true")
     assert result.returncode == 2 and "invalid choice: 'P9'" in result.stderr
