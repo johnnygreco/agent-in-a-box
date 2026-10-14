@@ -1,8 +1,8 @@
 """Start and stop the per-run proxy: a separate, supervisor-managed process.
 
 Two secrets are made for every run (decisions/0015). The credential goes into
-the workload's HTTP_PROXY URL; the proxy answers 407 to a request that does
-not carry it before anything is decided or recorded. The lab's stamp goes onto
+the workload's HTTP_PROXY and HTTPS_PROXY URLs; the proxy answers 407 to a
+request that does not carry it before anything is decided or recorded. The lab's stamp goes onto
 every request the proxy forwards; the fixture answers nothing else. So neither
 another user's process nor the natively contained workload can put a request
 into a run's evidence. The developer's own processes could, as they could edit

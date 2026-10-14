@@ -17,7 +17,7 @@ becomes three layers here (decisions/0010):
 
 The proxy is reached through a Unix socket mounted into the sandbox and a
 relay inside it that listens on the plan's proxy port on loopback, so the
-workload's HTTP_PROXY setting is the same as on every backend.
+workload's proxy settings are the same as on every backend.
 
 The profile is JSON so it can be hashed, diffed, and shown beside the SBPL
 for the same plan (chapter 6).

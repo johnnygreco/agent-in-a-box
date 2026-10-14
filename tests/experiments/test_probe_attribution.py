@@ -63,9 +63,10 @@ def test_allowed_with_a_shell_command_names_the_exit_status_not_none():
         "the application answered, and the program exited 22: nothing refused it")
 
 
-def test_allowed_without_a_receipt_is_the_fixture_or_the_forward_not_the_kernel():
+def test_allowed_without_a_receipt_is_the_proxy_the_fixture_or_the_forward_not_the_kernel():
     text = layer(NOT_OK, [ALLOWED], [])
-    assert text.startswith("allowed by the proxy, but the fixture left no receipt: it refused")
+    assert text.startswith("allowed by the proxy, but the fixture left no receipt: the proxy "
+                           "refused the body's size itself")
 
 
 def test_no_event_and_ok_is_the_kernel_permitting():
@@ -97,6 +98,13 @@ def test_a_407_with_no_decision_means_the_request_reached_the_proxy_without_cred
                 "detail": {"exit_status": 22}}
     assert layer(via_curl, [], []).startswith(
         "no proxy event: the request reached the proxy without the run's credential")
+
+
+def test_a_command_ended_by_the_bash_tools_timeout_is_named_as_such():
+    timed_out = {"ok": False, "output": "hi", "detail": {"timed_out": True}}
+    expected = ("no proxy event: the bash tool's own timeout ended the command; neither the "
+                "kernel nor the proxy refused anything")
+    assert layer(timed_out, [], []) == expected
 
 
 def test_no_event_and_not_ok_is_the_kernel_or_the_program():

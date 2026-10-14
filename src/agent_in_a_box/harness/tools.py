@@ -97,7 +97,8 @@ def bash(args: Mapping[str, Any]) -> Observation:
 
 
 def http(args: Mapping[str, Any]) -> Observation:
-    """An HTTP request through the configured proxy (HTTP_PROXY in the environment)."""
+    """An HTTP request through the configured proxy (HTTP_PROXY and HTTPS_PROXY in the
+    environment; an https request is refused at the proxy's CONNECT until Milestone 3)."""
     method = str(args["method"])
     url = str(args["url"])
     body = args.get("body")

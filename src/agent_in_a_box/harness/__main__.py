@@ -36,7 +36,8 @@ def main() -> int:
     else:
         model = ScriptedModel()
     run_agent(args.task, model, TOOLS,
-              lambda event: print(json.dumps({**event, "time": time.time()}), flush=True),
+              lambda event: print(json.dumps({**event, "time": time.time()}, ensure_ascii=False),
+                                  flush=True),
               args.max_turns)
     return 0
 

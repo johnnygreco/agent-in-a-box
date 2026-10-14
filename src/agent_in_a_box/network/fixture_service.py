@@ -29,6 +29,7 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -141,6 +142,14 @@ def make_handler(variant: dict, receipts: Receipts, stamp: str) -> type[BaseHTTP
     return Handler
 
 
+class QuietServer(ThreadingHTTPServer):
+    """A client that resets or closes early is not an error worth a traceback on stderr."""
+
+    def handle_error(self, request, client_address) -> None:
+        if not isinstance(sys.exc_info()[1], ConnectionResetError | BrokenPipeError):
+            super().handle_error(request, client_address)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Reference fixture service")
     parser.add_argument("--variant", default="default")
@@ -154,7 +163,7 @@ def main() -> None:
     args.receipts.touch()
     variant = load_variant(args.variant)
     handler = make_handler(variant, Receipts(args.receipts), stamp)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    server = QuietServer(("127.0.0.1", args.port), handler)
     print(f"READY {server.server_address[1]}", flush=True)
     server.serve_forever()
 

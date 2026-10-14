@@ -1,7 +1,7 @@
 # 0004. Per-run egress proxy: mitmproxy in regular mode, with our decision path in front of every forward
 
 Date: 2026-10-09
-Status: accepted
+Status: accepted; amended by ADR 0015 (the inventory of parsed fields gained the Transfer-Encoding header, and the proxy requires a run credential)
 
 ## Context
 

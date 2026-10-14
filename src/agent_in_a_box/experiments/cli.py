@@ -172,12 +172,16 @@ def layer(observation: dict, decisions: list[dict], receipts: list[dict]) -> str
         return (f"the proxy refused it at the {last['name']} check: no permit matched, so "
                 "Cedar's default deny applied")
     if decisions and not receipts:
-        return ("allowed by the proxy, but the fixture left no receipt: it refused the request "
-                "before reading it, or the forward failed; read the observation's status or error")
+        return ("allowed by the proxy, but the fixture left no receipt: the proxy refused the "
+                "body's size itself (its own 413), the fixture refused the request before "
+                "reading it, or the forward failed; read the observation's status or error")
     if decisions:
         if observation["ok"]:
             return "allowed by the proxy and answered by the fixture"
         return f"allowed by the proxy; {application_answer(observation)}: nothing refused it"
+    if observation["detail"].get("timed_out"):
+        return ("no proxy event: the bash tool's own timeout ended the command; neither the "
+                "kernel nor the proxy refused anything")
     if reached_the_fixture(observation):
         return ("no proxy event: the request reached the fixture directly, which refused it "
                 "for lacking the proxy's stamp. Nothing stood between the workload and the "
